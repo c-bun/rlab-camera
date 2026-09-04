@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rlab-camera</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header>
+    <h1>rlab-camera</h1>
+    <span class="badge">backend: {{ backend }}</span>
+  </header>
+
+  <main>
+    <section id="controls-panel">
+      <h2>Manual controls</h2>
+      <form id="controls-form"><!-- built from /api/controls --></form>
+      <button id="capture-btn" type="button">Capture</button>
+      <p id="status"></p>
+    </section>
+
+    <section id="gallery-panel">
+      <h2>Captures</h2>
+      <div id="gallery"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

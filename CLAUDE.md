@@ -1,0 +1,66 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project overview
+
+`rlab-camera` is a lab imaging application for a **Raspberry Pi 4** with the **RPi High Quality camera** (libcamera stack). It serves a web UI where lab members — reaching the Pi over **Tailscale** — capture images with **full manual camera control**, download image files, and schedule **time-course experiments**. Because it is a lab instrument, the UI must expose every manual setting picamera2 offers, not a simplified point-and-shoot subset.
+
+**Stack:** Python + FastAPI (uvicorn) backend · Jinja2 templates + vanilla JS frontend (no build step) · picamera2/libcamera for the camera · APScheduler for scheduling · SQLite for experiment and image metadata.
+
+> **Status:** Basic MVP scaffolded and passing tests: capture with full manual controls (mock backend off-Pi, picamera2 on-Pi), image download, and a gallery. Time-course experiments (APScheduler + experiment tables) are **not built yet** — that is the next feature to add on top of this base.
+
+## Two-machine development model (important)
+
+This is the central thing to understand before making changes:
+
+- **Dev machine (this repo, macOS):** where code is written and tested. `picamera2`/`libcamera` are **Pi-only and will not import on macOS**, so all camera access must sit behind an abstraction with a **mock backend** used for local dev and tests. Never assume the real camera is present here.
+- **Pi 4 (deployment target):** runs the real camera and the uvicorn server.
+- **Deploy loop:** edit here → commit → push to the git remote → SSH into the Pi over Tailscale → pull → restart the service. Code is not run on the Pi by editing there.
+
+## Commands
+
+```bash
+# Setup (dev machine)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt    # runtime deps only: requirements.txt
+
+# Run locally with the mock camera (macOS dev). CAMERA_BACKEND defaults to "auto",
+# which falls back to mock when picamera2 is unavailable, so the env var is optional.
+CAMERA_BACKEND=mock uvicorn app.main:app --reload
+
+# Run on the Pi (bind 0.0.0.0 so Tailscale peers can reach it)
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Tests
+pytest                                          # all tests
+pytest tests/test_api.py::test_capture_download_and_list   # a single test
+
+# Lint / format
+ruff check .
+ruff format .
+```
+
+On the Pi, install picamera2 via apt (it is intentionally not in requirements.txt so
+the file installs on macOS): `sudo apt install -y python3-picamera2`.
+
+## Architecture (big picture)
+
+The parts below span multiple files and are worth understanding up front:
+
+- **Camera abstraction layer** (`app/camera/`): one interface (`base.py` → `CameraBackend`) with two backends — `picamera2_backend.py` (Pi) and `mock.py` (dev/CI) — chosen at startup by `get_camera()` in `factory.py` via `CAMERA_BACKEND` (`auto`|`mock`|`picamera2`). **All capture goes through this interface; never `import picamera2` outside `picamera2_backend.py`.** The canonical manual control set lives in `controls.py` (exposure time, analogue gain, AWB + red/blue colour gains, brightness, contrast, saturation, sharpness, exposure compensation, framerate, resolution, format); the real backend refines numeric ranges from `Picamera2.camera_controls` where the sensor reports them. `capture()` returns a `CaptureResult` recording the exact applied settings, which are persisted with the image for reproducibility.
+
+- **Web layer** (`app/main.py` + `app/routers/`): `capture.py` serves the page, `/api/controls`, and `/api/capture`; `images.py` serves listing, metadata, and file download. Jinja2 template + vanilla JS in `app/templates/` and `app/static/`. The control panel is **built client-side from `/api/controls`** so it always reflects the active backend's reported ranges rather than hard-coded limits.
+
+- **Persistence & storage** (`app/db.py`, `app/config.py`): captured-image metadata (including the full settings JSON) goes in SQLite; image files are written to `data/images/`, the DB to `data/rlab.db`. Both live under `data/` (gitignored) and paths are overridable via `RLAB_DATA_DIR`/`RLAB_DB_PATH` — the tests rely on these overrides for isolation.
+
+- **Experiments / scheduling (not built yet):** the plan is APScheduler running time-course capture jobs with experiment definitions in SQLite, reusing the same `get_camera()` + `db.insert_image()` path (note `images.experiment_id` is already in the schema). Add an experiments router/table when implementing.
+
+- **Auth model:** access is gated by **Tailscale network membership** — on the Pi the server binds `0.0.0.0` and is reachable only over the tailnet. There is no app-level login yet; decide whether to add one or delegate trust to Tailscale.
+
+## Conventions
+
+- Never `import picamera2` outside the camera backend module — everything else uses the abstraction.
+- Manual controls are first-class: expose the full picamera2 control surface, prefer sensor-reported ranges over hard-coded limits, and persist the exact settings used with every capture.
+- On the Pi the server must bind `0.0.0.0` for Tailscale peers to reach it.
+- Keep the camera interface mockable so dev and tests run on macOS without hardware.
