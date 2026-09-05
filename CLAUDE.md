@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Stack:** Python + FastAPI (uvicorn) backend · Jinja2 templates + vanilla JS frontend (no build step) · picamera2/libcamera for the camera · APScheduler for scheduling · SQLite for experiment and image metadata.
 
-> **Status:** Basic MVP scaffolded and passing tests: capture with full manual controls (mock backend off-Pi, picamera2 on-Pi), image download, and a gallery. Time-course experiments (APScheduler + experiment tables) are **not built yet** — that is the next feature to add on top of this base.
+> **Status:** MVP built, tested, and **deployed on the Pi** as a systemd service. Working: capture with full manual controls (mock backend off-Pi, real picamera2 on-Pi), image download, and a gallery. Verified end to end over Tailscale against the real HQ camera. Time-course experiments (APScheduler + experiment tables) are **not built yet** — that is the next feature to add on top of this base.
 
 ## Two-machine development model (important)
 
@@ -17,6 +17,20 @@ This is the central thing to understand before making changes:
 - **Dev machine (this repo, macOS):** where code is written and tested. `picamera2`/`libcamera` are **Pi-only and will not import on macOS**, so all camera access must sit behind an abstraction with a **mock backend** used for local dev and tests. Never assume the real camera is present here.
 - **Pi 4 (deployment target):** runs the real camera and the uvicorn server.
 - **Deploy loop:** edit here → commit → push to the git remote → SSH into the Pi over Tailscale → pull → restart the service. Code is not run on the Pi by editing there.
+
+### The Pi (current deployment)
+
+- Host: `rlab-camera@100.67.2.37` (Tailscale IP; name `rlab-camera`). Debian 13, Python 3.13.
+- Repo at `~/rlab-camera`; venv created with `--system-site-packages` so it can see the apt-installed `python3-picamera2` (picamera2 is **not** pip-installable and is deliberately absent from `requirements.txt`).
+- Runs as the **systemd service `rlab-camera`** (unit in `deploy/rlab-camera.service`), bound to `0.0.0.0:8000`, `enabled` on boot, `Restart=on-failure`, `Environment=CAMERA_BACKEND=picamera2`.
+- Reachable from any tailnet peer at `http://100.67.2.37:8000/`.
+- `sudo` on the Pi requires a password — steps needing it (apt installs, installing/enabling the unit) must be run interactively by the user, not automated.
+
+Update the running Pi:
+```bash
+ssh rlab-camera@100.67.2.37 'cd rlab-camera && git pull && sudo systemctl restart rlab-camera'
+```
+Operate: `systemctl status rlab-camera` · `journalctl -u rlab-camera -f`. Full setup steps are in `deploy/README.md`.
 
 ## Commands
 
@@ -49,6 +63,8 @@ the file installs on macOS): `sudo apt install -y python3-picamera2`.
 The parts below span multiple files and are worth understanding up front:
 
 - **Camera abstraction layer** (`app/camera/`): one interface (`base.py` → `CameraBackend`) with two backends — `picamera2_backend.py` (Pi) and `mock.py` (dev/CI) — chosen at startup by `get_camera()` in `factory.py` via `CAMERA_BACKEND` (`auto`|`mock`|`picamera2`). **All capture goes through this interface; never `import picamera2` outside `picamera2_backend.py`.** The canonical manual control set lives in `controls.py` (exposure time, analogue gain, AWB + red/blue colour gains, brightness, contrast, saturation, sharpness, exposure compensation, framerate, resolution, format); the real backend refines numeric ranges from `Picamera2.camera_controls` where the sensor reports them. `capture()` returns a `CaptureResult` recording the exact applied settings, which are persisted with the image for reproducibility.
+
+  The picamera2 backend builds a **still configuration at the requested resolution** and reconfigures (stop → configure → start) only when the resolution changes, then **drops one settling frame** after `set_controls` so manual exposure/gain/AWB take effect before the kept frame. It reports the size the camera was *actually* configured to (from `camera_configuration()["main"]["size"]`), not the requested string — do not reintroduce echoing the request, since a mismatch silently corrupts capture metadata.
 
 - **Web layer** (`app/main.py` + `app/routers/`): `capture.py` serves the page, `/api/controls`, and `/api/capture`; `images.py` serves listing, metadata, and file download. Jinja2 template + vanilla JS in `app/templates/` and `app/static/`. The control panel is **built client-side from `/api/controls`** so it always reflects the active backend's reported ranges rather than hard-coded limits.
 
