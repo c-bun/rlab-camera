@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import io
+
+import tifffile
+
 
 def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok"}
@@ -28,6 +32,30 @@ def test_capture_download_and_list(client):
     assert file_resp.status_code == 200
     assert file_resp.headers["content-type"] == "image/jpeg"
     assert len(file_resp.content) > 0
+
+
+def test_capture_tiff_embeds_imagej_metadata(client):
+    resp = client.post(
+        "/api/capture",
+        json={"resolution": "1332x990", "image_format": "tiff", "ExposureTime": 5000},
+    )
+    assert resp.status_code == 200
+    img = resp.json()
+    assert img["image_format"] == "tiff"
+
+    file_resp = client.get(f"/api/images/{img['id']}/file?download=true")
+    assert file_resp.status_code == 200
+    assert file_resp.headers["content-type"] == "image/tiff"
+
+    with tifffile.TiffFile(io.BytesIO(file_resp.content)) as tif:
+        info = tif.imagej_metadata["Info"]
+    assert "ExposureTime=5000" in info
+
+    # A JPEG thumbnail is served so the TIFF still previews in the browser gallery.
+    thumb_resp = client.get(f"/api/images/{img['id']}/thumbnail")
+    assert thumb_resp.status_code == 200
+    assert thumb_resp.headers["content-type"] == "image/jpeg"
+    assert thumb_resp.content[:2] == b"\xff\xd8"  # JPEG magic
 
 
 def test_preview_returns_jpeg_without_capturing(client):

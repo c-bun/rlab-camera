@@ -30,6 +30,8 @@ h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; opaci
 .field { display: grid; gap: 0.2rem; margin-bottom: 0.75rem; }
 .field label { font-weight: 600; }
 .field .meta { font-size: 0.75rem; opacity: 0.6; }
+.info-icon { font-weight: 400; opacity: 0.55; cursor: help; font-size: 0.85em; }
+.info-icon:hover { opacity: 0.9; }
 .field input[type="number"], .field select { width: 100%; padding: 0.3rem; }
 button {
   padding: 0.5rem 1rem;

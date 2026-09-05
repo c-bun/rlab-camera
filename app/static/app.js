@@ -18,6 +18,15 @@ function renderField(c) {
   const label = document.createElement("label");
   label.textContent = c.label + (c.unit ? ` (${c.unit})` : "");
   label.htmlFor = c.name;
+  if (c.description) {
+    // Show the explanation on hover so the form stays uncluttered.
+    const info = document.createElement("span");
+    info.className = "info-icon";
+    info.textContent = "ⓘ";
+    info.title = c.description;
+    info.setAttribute("aria-label", c.description);
+    label.append(" ", info);
+  }
   wrap.appendChild(label);
 
   let input;
@@ -51,12 +60,6 @@ function renderField(c) {
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.textContent = `range ${c.min} – ${c.max}`;
-    wrap.appendChild(meta);
-  }
-  if (c.description) {
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    meta.textContent = c.description;
     wrap.appendChild(meta);
   }
   return wrap;
@@ -163,8 +166,14 @@ async function loadGallery() {
   for (const img of images) {
     const card = document.createElement("div");
     card.className = "card";
+    // Browsers can't render TIFF in <img>, so preview it via the server-generated
+    // JPEG thumbnail (same captured pixels, downscaled). JPEG/PNG show the file directly.
+    const isTiff = img.image_format === "tiff" || img.image_format === "tif";
+    const thumbSrc = isTiff
+      ? `/api/images/${img.id}/thumbnail`
+      : `/api/images/${img.id}/file`;
     card.innerHTML = `
-      <img src="/api/images/${img.id}/file" alt="capture ${img.id}" loading="lazy">
+      <img src="${thumbSrc}" alt="capture ${img.id}" loading="lazy">
       <div class="info">
         #${img.id} · ${img.width}×${img.height} · ${img.image_format}<br>
         <a href="/api/images/${img.id}/file?download=true">Download</a>

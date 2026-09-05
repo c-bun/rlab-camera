@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Stack:** Python + FastAPI (uvicorn) backend · Jinja2 templates + vanilla JS frontend (no build step) · picamera2/libcamera for the camera · APScheduler for scheduling · SQLite for experiment and image metadata.
 
-> **Status:** MVP built, tested, and **deployed on the Pi** as a systemd service. Working: capture with full manual controls (mock backend off-Pi, real picamera2 on-Pi), a **low-framerate live view** for tuning controls without capturing, image download, and a gallery. Verified end to end over Tailscale against the real HQ camera. Time-course experiments (APScheduler + experiment tables) are **not built yet** — that is the next feature to add on top of this base.
+> **Status:** MVP built, tested, and **deployed on the Pi** as a systemd service. Working: capture with full manual controls (mock backend off-Pi, real picamera2 on-Pi) — each control carries a hover tooltip built from its `description` — output as JPEG, PNG, or **TIFF that embeds the applied settings + sensor metadata as an ImageJ-readable `Info` property**, a **low-framerate live view** for tuning controls without capturing, image download, and a gallery (TIFFs preview via a cached server-side JPEG thumbnail since browsers can't render TIFF inline). Verified end to end over Tailscale against the real HQ camera. Time-course experiments (APScheduler + experiment tables) are **not built yet** — that is the next feature to add on top of this base.
 
 ## Two-machine development model (important)
 

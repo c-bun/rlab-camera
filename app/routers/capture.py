@@ -46,10 +46,14 @@ def preview(settings: dict[str, Any]) -> Response:
 def capture(settings: dict[str, Any]) -> dict[str, Any]:
     camera = get_camera()
     now = datetime.now(UTC)
-    ext = "jpg" if str(settings.get("image_format", "jpeg")).lower() in ("jpg", "jpeg") else "png"
+    fmt = str(settings.get("image_format", "jpeg")).lower()
+    ext = {"jpg": "jpg", "jpeg": "jpg", "png": "png", "tiff": "tiff", "tif": "tiff"}.get(fmt, "jpg")
     filename = f"{now.strftime('%Y%m%dT%H%M%S%f')}.{ext}"
     dest = config.IMAGES_DIR / filename
 
+    # Include the capture timestamp in the settings the backend persists (and, for TIFF,
+    # embeds as ImageJ metadata) so an exported file carries when it was taken.
+    settings = {**settings, "captured_at": now.isoformat()}
     result = camera.capture(settings, dest)
 
     image_id = db.insert_image(

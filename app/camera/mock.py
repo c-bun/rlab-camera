@@ -11,10 +11,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 from .base import CameraBackend, CameraControl, CaptureResult
 from .controls import MANUAL_CONTROLS
+from .tiff import write_imagej_tiff
 
 # Small fixed size for the live view, independent of the `resolution` control, so
 # preview stays cheap even when captures are configured for full sensor resolution.
@@ -35,8 +37,12 @@ class MockCamera(CameraBackend):
         img = self._render(width, height, image_format, applied)
 
         dest.parent.mkdir(parents=True, exist_ok=True)
-        pil_format = "JPEG" if image_format in ("jpg", "jpeg") else image_format.upper()
-        img.save(dest, format=pil_format)
+        if image_format in ("tiff", "tif"):
+            # Lossless + capture settings embedded as ImageJ-readable metadata.
+            write_imagej_tiff(dest, np.asarray(img), applied)
+        else:
+            pil_format = "JPEG" if image_format in ("jpg", "jpeg") else image_format.upper()
+            img.save(dest, format=pil_format)
 
         return CaptureResult(
             path=dest,

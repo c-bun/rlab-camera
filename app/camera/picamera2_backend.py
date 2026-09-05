@@ -14,6 +14,7 @@ from typing import Any
 
 from .base import CameraBackend, CameraControl, CaptureResult
 from .controls import MANUAL_CONTROLS, controls_by_name
+from .tiff import write_imagej_tiff
 
 # Small fixed size for the live view, independent of the `resolution` control, so
 # preview stays cheap even when captures are configured for full sensor resolution.
@@ -61,10 +62,15 @@ class Picamera2Camera(CameraBackend):
                 lo, hi, default = info
                 controls.append(
                     CameraControl(
-                        ctrl.name, ctrl.label, ctrl.kind,
-                        min=lo, max=hi,
+                        ctrl.name,
+                        ctrl.label,
+                        ctrl.kind,
+                        min=lo,
+                        max=hi,
                         default=default if default is not None else ctrl.default,
-                        step=ctrl.step, unit=ctrl.unit, description=ctrl.description,
+                        step=ctrl.step,
+                        unit=ctrl.unit,
+                        description=ctrl.description,
                     )
                 )
             else:
@@ -88,22 +94,31 @@ class Picamera2Camera(CameraBackend):
             request = self._picam2.capture_request()
             try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                request.save("main", str(dest))
+
+                # Report the size the camera was ACTUALLY configured to, not the request.
+                actual_w, actual_h = self._picam2.camera_configuration()["main"]["size"]
                 metadata = request.get_metadata()
+                applied = {
+                    **settings,
+                    "resolution": f"{actual_w}x{actual_h}",
+                    "image_format": image_format,
+                    "_sensor_metadata": metadata,
+                }
+
+                if image_format in ("tiff", "tif"):
+                    # Lossless TIFF carrying the applied settings + sensor metadata as an
+                    # ImageJ-readable Info property (request.save can't embed our metadata).
+                    write_imagej_tiff(dest, request.make_array("main"), applied)
+                else:
+                    request.save("main", str(dest))
             finally:
                 request.release()
-
-            # Report the size the camera was ACTUALLY configured to, not the request.
-            actual_w, actual_h = self._picam2.camera_configuration()["main"]["size"]
-            applied = {
-                **settings,
-                "resolution": f"{actual_w}x{actual_h}",
-                "image_format": image_format,
-                "_sensor_metadata": metadata,
-            }
             return CaptureResult(
-                path=dest, width=actual_w, height=actual_h,
-                image_format=image_format, applied_settings=applied,
+                path=dest,
+                width=actual_w,
+                height=actual_h,
+                image_format=image_format,
+                applied_settings=applied,
             )
 
     def preview(self, settings: dict[str, Any]) -> bytes:
