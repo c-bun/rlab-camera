@@ -22,6 +22,15 @@
       </div>
       <button id="capture-btn" type="button">Capture</button>
       <p id="status"></p>
+
+      <div id="presets-panel">
+        <h2>Presets</h2>
+        <div class="preset-row">
+          <input id="preset-name" type="text" placeholder="Preset name" autocomplete="off">
+          <button id="save-preset-btn" type="button">Save preset</button>
+        </div>
+        <ul id="presets-list"><!-- built from /api/presets --></ul>
+      </div>
     </section>
 
     <section id="gallery-panel">

@@ -75,6 +75,18 @@ function collectSettings() {
   return settings;
 }
 
+// Inverse of collectSettings(): load a stored settings dict back into the control
+// panel. Iterating the form's inputs (not the settings keys) means extra keys that
+// aren't controls — captured_at, the actual resolution recorded on a capture — are
+// simply ignored. If a live preview is running it picks up the change on its next poll.
+function applySettings(settings) {
+  for (const el of document.querySelectorAll("#controls-form [name]")) {
+    if (!(el.name in settings) || settings[el.name] == null) continue;
+    if (el.dataset.kind === "bool") el.checked = !!settings[el.name];
+    else el.value = settings[el.name];
+  }
+}
+
 // --- Live view: poll /api/preview ~2×/sec with the current control values, so
 // tweaking a control updates the image without a full capture. ---
 const PREVIEW_INTERVAL_MS = 500;
@@ -177,12 +189,94 @@ async function loadGallery() {
       <div class="info">
         #${img.id} · ${img.width}×${img.height} · ${img.image_format}<br>
         <a href="/api/images/${img.id}/file?download=true">Download</a>
+        <button type="button" class="use-settings-btn">Use settings</button>
       </div>`;
+    // Recall this capture's stored settings into the control panel. Bind the settings
+    // object here rather than embedding JSON in the template string.
+    card.querySelector(".use-settings-btn").addEventListener("click", () => {
+      applySettings(img.settings);
+      document.getElementById("status").textContent = `Loaded settings from #${img.id}`;
+    });
     gallery.appendChild(card);
+  }
+}
+
+// --- Presets: named, server-side, shared across lab members. ---
+async function loadPresets() {
+  const res = await fetch("/api/presets");
+  const presets = await res.json();
+  const list = document.getElementById("presets-list");
+  list.innerHTML = "";
+  if (presets.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "preset-empty";
+    empty.textContent = "No presets saved yet.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const p of presets) {
+    const li = document.createElement("li");
+    li.className = "preset-item";
+    const name = document.createElement("span");
+    name.className = "preset-item-name";
+    name.textContent = p.name;
+
+    const recall = document.createElement("button");
+    recall.type = "button";
+    recall.textContent = "Recall";
+    recall.addEventListener("click", () => {
+      applySettings(p.settings);
+      document.getElementById("status").textContent = `Loaded preset “${p.name}”`;
+    });
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Delete";
+    del.className = "preset-delete";
+    del.addEventListener("click", () => deletePreset(p.id));
+
+    li.append(name, recall, del);
+    list.appendChild(li);
+  }
+}
+
+async function savePreset() {
+  const input = document.getElementById("preset-name");
+  const status = document.getElementById("status");
+  const name = input.value.trim();
+  if (!name) {
+    status.textContent = "Enter a name to save a preset.";
+    input.focus();
+    return;
+  }
+  try {
+    const res = await fetch("/api/presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, settings: collectSettings() }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    input.value = "";
+    status.textContent = `Saved preset “${name}”`;
+    await loadPresets();
+  } catch (err) {
+    status.textContent = "Error saving preset: " + err.message;
+  }
+}
+
+async function deletePreset(id) {
+  try {
+    const res = await fetch(`/api/presets/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(await res.text());
+    await loadPresets();
+  } catch (err) {
+    document.getElementById("status").textContent = "Error deleting preset: " + err.message;
   }
 }
 
 document.getElementById("capture-btn").addEventListener("click", capture);
 document.getElementById("preview-btn").addEventListener("click", togglePreview);
+document.getElementById("save-preset-btn").addEventListener("click", savePreset);
 loadControls();
 loadGallery();
+loadPresets();

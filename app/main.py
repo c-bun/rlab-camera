@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 from .config import ensure_dirs
-from .routers import capture, images
+from .routers import capture, images, presets
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -36,6 +36,7 @@ app.state.templates = templates
 
 app.include_router(capture.router)
 app.include_router(images.router)
+app.include_router(presets.router)
 
 
 @app.get("/healthz")
