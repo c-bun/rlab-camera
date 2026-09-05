@@ -13,8 +13,8 @@ from typing import Any
 from .base import CameraBackend, CameraControl, CaptureResult
 from .controls import MANUAL_CONTROLS, controls_by_name
 
-# Map our control names to picamera2 control names. Names that match picamera2
-# 1:1 are handled directly; the rest are translated in capture().
+# Our control names that map 1:1 onto picamera2 control names. The rest
+# (colour gains, resolution, format) are translated in capture().
 _PICAMERA2_DIRECT = {
     "ExposureTime",
     "AnalogueGain",
@@ -27,6 +27,8 @@ _PICAMERA2_DIRECT = {
     "FrameRate",
 }
 
+_AWB_OFF_VALUES = (False, "false", "False", "off", "0", 0)
+
 
 class Picamera2Camera(CameraBackend):
     name = "picamera2"
@@ -35,7 +37,8 @@ class Picamera2Camera(CameraBackend):
         from picamera2 import Picamera2  # noqa: PLC0415 (lazy: Pi-only import)
 
         self._picam2 = Picamera2()
-        self._picam2.start()
+        self._configured_size: tuple[int, int] | None = None
+        self._started = False
 
     def get_controls(self) -> list[CameraControl]:
         # Start from our canonical set, then refine numeric ranges from what the
@@ -59,25 +62,18 @@ class Picamera2Camera(CameraBackend):
         return controls
 
     def capture(self, settings: dict[str, Any], dest: Path) -> CaptureResult:
-        defs = controls_by_name()
-        controls: dict[str, Any] = {}
-        for name in _PICAMERA2_DIRECT:
-            if name in settings and settings[name] is not None:
-                controls[name] = settings[name]
+        size = _parse_resolution(str(settings.get("resolution", "4056x3040")))
+        self._ensure_configured(size)
 
-        # Manual colour gains as a (red, blue) tuple, only when AWB is disabled.
-        if settings.get("AwbEnable") in (False, "false", "off", "0", 0):
-            controls["AwbEnable"] = False
-            red = settings.get("ColourGainRed", defs["ColourGainRed"].default)
-            blue = settings.get("ColourGainBlue", defs["ColourGainBlue"].default)
-            controls["ColourGains"] = (float(red), float(blue))
-
+        controls = self._build_controls(settings)
         if controls:
             self._picam2.set_controls(controls)
 
-        width, height = _parse_resolution(str(settings.get("resolution", "4056x3040")))
-        image_format = str(settings.get("image_format", "jpeg")).lower()
+        # Drop a frame so the new controls (exposure/gain/AWB) take effect before
+        # the frame we keep — otherwise the first capture reflects the old state.
+        self._picam2.capture_request().release()
 
+        image_format = str(settings.get("image_format", "jpeg")).lower()
         request = self._picam2.capture_request()
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -86,17 +82,53 @@ class Picamera2Camera(CameraBackend):
         finally:
             request.release()
 
-        applied = {**settings, "resolution": f"{width}x{height}", "image_format": image_format}
-        applied["_sensor_metadata"] = metadata
+        # Report the size the camera was ACTUALLY configured to, not the request.
+        actual_w, actual_h = self._picam2.camera_configuration()["main"]["size"]
+        applied = {
+            **settings,
+            "resolution": f"{actual_w}x{actual_h}",
+            "image_format": image_format,
+            "_sensor_metadata": metadata,
+        }
         return CaptureResult(
-            path=dest, width=width, height=height,
+            path=dest, width=actual_w, height=actual_h,
             image_format=image_format, applied_settings=applied,
         )
+
+    def _ensure_configured(self, size: tuple[int, int]) -> None:
+        """(Re)configure a still stream at `size`, restarting only when it changes."""
+        if self._configured_size == size and self._started:
+            return
+        if self._started:
+            self._picam2.stop()
+            self._started = False
+        config = self._picam2.create_still_configuration(main={"size": size})
+        self._picam2.configure(config)
+        self._picam2.start()
+        self._started = True
+        self._configured_size = size
+
+    def _build_controls(self, settings: dict[str, Any]) -> dict[str, Any]:
+        defs = controls_by_name()
+        controls: dict[str, Any] = {}
+        for name in _PICAMERA2_DIRECT:
+            if settings.get(name) is not None:
+                controls[name] = settings[name]
+
+        # Manual colour gains as a (red, blue) tuple, only when AWB is disabled.
+        if settings.get("AwbEnable") in _AWB_OFF_VALUES:
+            controls["AwbEnable"] = False
+            red = settings.get("ColourGainRed", defs["ColourGainRed"].default)
+            blue = settings.get("ColourGainBlue", defs["ColourGainBlue"].default)
+            controls["ColourGains"] = (float(red), float(blue))
+        return controls
 
     def close(self) -> None:
         picam = getattr(self, "_picam2", None)
         if picam is not None:
-            picam.stop()
+            if self._started:
+                picam.stop()
+                self._started = False
             picam.close()
             self._picam2 = None
 
