@@ -7,11 +7,17 @@ Install on the Pi with: sudo apt install -y python3-picamera2
 
 from __future__ import annotations
 
+import io
+import threading
 from pathlib import Path
 from typing import Any
 
 from .base import CameraBackend, CameraControl, CaptureResult
 from .controls import MANUAL_CONTROLS, controls_by_name
+
+# Small fixed size for the live view, independent of the `resolution` control, so
+# preview stays cheap even when captures are configured for full sensor resolution.
+_PREVIEW_SIZE = (1014, 760)
 
 # Our control names that map 1:1 onto picamera2 control names. The rest
 # (colour gains, resolution, format) are translated in capture().
@@ -39,6 +45,10 @@ class Picamera2Camera(CameraBackend):
         self._picam2 = Picamera2()
         self._configured_size: tuple[int, int] | None = None
         self._started = False
+        # Serialize camera access: FastAPI sync routes run in a threadpool, so a
+        # live-view poll and a capture can hit the shared Picamera2 object at once
+        # and race on the reconfigure (stop/configure/start) in _ensure_configured.
+        self._lock = threading.Lock()
 
     def get_controls(self) -> list[CameraControl]:
         # Start from our canonical set, then refine numeric ranges from what the
@@ -62,38 +72,55 @@ class Picamera2Camera(CameraBackend):
         return controls
 
     def capture(self, settings: dict[str, Any], dest: Path) -> CaptureResult:
-        size = _parse_resolution(str(settings.get("resolution", "4056x3040")))
-        self._ensure_configured(size)
+        with self._lock:
+            size = _parse_resolution(str(settings.get("resolution", "4056x3040")))
+            self._ensure_configured(size)
 
-        controls = self._build_controls(settings)
-        if controls:
-            self._picam2.set_controls(controls)
+            controls = self._build_controls(settings)
+            if controls:
+                self._picam2.set_controls(controls)
 
-        # Drop a frame so the new controls (exposure/gain/AWB) take effect before
-        # the frame we keep — otherwise the first capture reflects the old state.
-        self._picam2.capture_request().release()
+            # Drop a frame so the new controls (exposure/gain/AWB) take effect before
+            # the frame we keep — otherwise the first capture reflects the old state.
+            self._picam2.capture_request().release()
 
-        image_format = str(settings.get("image_format", "jpeg")).lower()
-        request = self._picam2.capture_request()
-        try:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            request.save("main", str(dest))
-            metadata = request.get_metadata()
-        finally:
-            request.release()
+            image_format = str(settings.get("image_format", "jpeg")).lower()
+            request = self._picam2.capture_request()
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                request.save("main", str(dest))
+                metadata = request.get_metadata()
+            finally:
+                request.release()
 
-        # Report the size the camera was ACTUALLY configured to, not the request.
-        actual_w, actual_h = self._picam2.camera_configuration()["main"]["size"]
-        applied = {
-            **settings,
-            "resolution": f"{actual_w}x{actual_h}",
-            "image_format": image_format,
-            "_sensor_metadata": metadata,
-        }
-        return CaptureResult(
-            path=dest, width=actual_w, height=actual_h,
-            image_format=image_format, applied_settings=applied,
-        )
+            # Report the size the camera was ACTUALLY configured to, not the request.
+            actual_w, actual_h = self._picam2.camera_configuration()["main"]["size"]
+            applied = {
+                **settings,
+                "resolution": f"{actual_w}x{actual_h}",
+                "image_format": image_format,
+                "_sensor_metadata": metadata,
+            }
+            return CaptureResult(
+                path=dest, width=actual_w, height=actual_h,
+                image_format=image_format, applied_settings=applied,
+            )
+
+    def preview(self, settings: dict[str, Any]) -> bytes:
+        with self._lock:
+            self._ensure_configured(_PREVIEW_SIZE)
+
+            controls = self._build_controls(settings)
+            if controls:
+                self._picam2.set_controls(controls)
+
+            # No settling-frame drop here (unlike capture): the live view is
+            # continuous, so a control change simply shows on the next poll. This
+            # keeps each poll to a single frame and low-latency.
+            img = self._picam2.capture_image("main")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG")
+            return buf.getvalue()
 
     def _ensure_configured(self, size: tuple[int, int]) -> None:
         """(Re)configure a still stream at `size`, restarting only when it changes."""

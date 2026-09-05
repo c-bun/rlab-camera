@@ -30,5 +30,21 @@ def test_capture_download_and_list(client):
     assert len(file_resp.content) > 0
 
 
+def test_preview_returns_jpeg_without_capturing(client):
+    before = len(client.get("/api/images").json())
+
+    resp = client.post(
+        "/api/preview",
+        json={"resolution": "1332x990", "image_format": "jpeg", "ExposureTime": 5000},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    assert resp.content[:2] == b"\xff\xd8"  # JPEG magic
+
+    # Preview must not create an image row.
+    after = len(client.get("/api/images").json())
+    assert after == before
+
+
 def test_missing_image_404(client):
     assert client.get("/api/images/999999").status_code == 404

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 
 from .. import config, db
@@ -32,6 +32,14 @@ def get_controls() -> dict[str, Any]:
         "backend": camera.name,
         "controls": [c.to_dict() for c in camera.get_controls()],
     }
+
+
+@router.post("/api/preview")
+def preview(settings: dict[str, Any]) -> Response:
+    # Live view: apply the same settings as a capture but return an in-memory JPEG
+    # frame — no file on disk, no DB row. Called repeatedly at a low framerate.
+    camera = get_camera()
+    return Response(content=camera.preview(settings), media_type="image/jpeg")
 
 
 @router.post("/api/capture")
