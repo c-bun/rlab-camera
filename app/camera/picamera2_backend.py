@@ -26,10 +26,6 @@ _PICAMERA2_DIRECT = {
     "ExposureTime",
     "AnalogueGain",
     "AwbEnable",
-    "Brightness",
-    "Contrast",
-    "Saturation",
-    "Sharpness",
     "ExposureValue",
     "FrameRate",
 }

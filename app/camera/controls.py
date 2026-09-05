@@ -89,50 +89,6 @@ MANUAL_CONTROLS: list[CameraControl] = [
         description="Manual blue gain (used when AWB is off).",
     ),
     CameraControl(
-        "Brightness",
-        "Brightness",
-        "number",
-        min=-1.0,
-        max=1.0,
-        default=0.0,
-        step=0.05,
-        description="Post-processing brightness offset; 0 is neutral, negative darkens and "
-        "positive lightens the image.",
-    ),
-    CameraControl(
-        "Contrast",
-        "Contrast",
-        "number",
-        min=0.0,
-        max=32.0,
-        default=1.0,
-        step=0.1,
-        description="Post-processing contrast; 1.0 is neutral, higher values increase the "
-        "difference between light and dark tones.",
-    ),
-    CameraControl(
-        "Saturation",
-        "Saturation",
-        "number",
-        min=0.0,
-        max=32.0,
-        default=1.0,
-        step=0.1,
-        description="Colour intensity; 1.0 is neutral, 0 gives greyscale and higher values "
-        "make colours more vivid.",
-    ),
-    CameraControl(
-        "Sharpness",
-        "Sharpness",
-        "number",
-        min=0.0,
-        max=16.0,
-        default=1.0,
-        step=0.1,
-        description="Edge-enhancement strength; 1.0 is neutral, 0 disables sharpening and "
-        "higher values sharpen more.",
-    ),
-    CameraControl(
         "ExposureValue",
         "Exposure compensation",
         "number",
