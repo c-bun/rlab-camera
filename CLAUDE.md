@@ -24,7 +24,8 @@ This is the central thing to understand before making changes:
 - Repo at `~/rlab-camera`; venv created with `--system-site-packages` so it can see the apt-installed `python3-picamera2` (picamera2 is **not** pip-installable and is deliberately absent from `requirements.txt`).
 - Runs as the **systemd service `rlab-camera`** (unit in `deploy/rlab-camera.service`), bound to `0.0.0.0:8000`, `enabled` on boot, `Restart=on-failure`, `Environment=CAMERA_BACKEND=picamera2`.
 - Reachable from any tailnet peer at `http://100.67.2.37:8000/`.
-- `sudo` on the Pi requires a password — steps needing it (apt installs, installing/enabling the unit) must be run interactively by the user, not automated.
+- `sudo` on the Pi requires a password — steps needing it (apt installs, installing/enabling the unit, **`systemctl restart`**) must be run interactively by the user, not automated.
+- **Passwordless SSH works for non-sudo operations.** Claude Code can `ssh -o BatchMode=yes rlab-camera@100.67.2.37 '…'` to run read-only checks and git commands (`git fetch`/`checkout`/`pull`/`status`/`log`, `journalctl`, `systemctl status`) directly — so deploying code to the Pi and inspecting its state can be done autonomously. Only the final `sudo systemctl restart rlab-camera` needs the user to run it (e.g. via a `!`-prefixed command in the session).
 
 Update the running Pi:
 ```bash
