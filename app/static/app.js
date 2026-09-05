@@ -72,9 +72,69 @@ function collectSettings() {
   return settings;
 }
 
+// --- Live view: poll /api/preview ~2×/sec with the current control values, so
+// tweaking a control updates the image without a full capture. ---
+const PREVIEW_INTERVAL_MS = 500;
+let previewTimer = null;
+let previewInFlight = false;
+let previewUrl = null;
+
+function isPreviewing() {
+  return previewTimer !== null;
+}
+
+async function tickPreview() {
+  if (previewInFlight) return; // skip if the last poll hasn't returned
+  previewInFlight = true;
+  try {
+    const res = await fetch("/api/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(collectSettings()),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById("preview");
+    img.src = url;
+    img.hidden = false;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = url;
+  } catch (err) {
+    document.getElementById("status").textContent = "Live view error: " + err.message;
+    stopPreview();
+  } finally {
+    previewInFlight = false;
+  }
+}
+
+function startPreview() {
+  if (isPreviewing()) return;
+  document.getElementById("preview-btn").textContent = "Stop live view";
+  previewTimer = setInterval(tickPreview, PREVIEW_INTERVAL_MS);
+  tickPreview(); // show a first frame immediately
+}
+
+function stopPreview() {
+  if (previewTimer !== null) {
+    clearInterval(previewTimer);
+    previewTimer = null;
+  }
+  document.getElementById("preview-btn").textContent = "Start live view";
+}
+
+function togglePreview() {
+  if (isPreviewing()) stopPreview();
+  else startPreview();
+}
+
 async function capture() {
   const btn = document.getElementById("capture-btn");
   const status = document.getElementById("status");
+  const wasPreviewing = isPreviewing();
+  // Pause the live view during a capture so the two don't fight over the
+  // camera's resolution reconfigure.
+  if (wasPreviewing) stopPreview();
   btn.disabled = true;
   status.textContent = "Capturing…";
   try {
@@ -91,6 +151,7 @@ async function capture() {
     status.textContent = "Error: " + err.message;
   } finally {
     btn.disabled = false;
+    if (wasPreviewing) startPreview();
   }
 }
 
@@ -113,5 +174,6 @@ async function loadGallery() {
 }
 
 document.getElementById("capture-btn").addEventListener("click", capture);
+document.getElementById("preview-btn").addEventListener("click", togglePreview);
 loadControls();
 loadGallery();

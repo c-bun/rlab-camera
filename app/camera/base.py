@@ -77,5 +77,13 @@ class CameraBackend(ABC):
         Unknown or out-of-range values should be ignored or clamped, not fatal.
         """
 
+    @abstractmethod
+    def preview(self, settings: dict[str, Any]) -> bytes:
+        """Apply `settings` and return a small JPEG frame in memory (no file).
+
+        Used for the live view: called repeatedly at a low framerate to let users
+        see the effect of controls without capturing to disk or the database.
+        """
+
     def close(self) -> None:  # noqa: B027 (optional hook; backends without resources need no override)
         """Release hardware resources. Safe to call multiple times."""
