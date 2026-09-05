@@ -1,0 +1,17 @@
+[Unit]
+Description=rlab-camera lab imaging app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rlab-camera
+WorkingDirectory=/home/rlab-camera/rlab-camera
+Environment=CAMERA_BACKEND=picamera2
+# Bind 0.0.0.0 so Tailscale peers can reach it; access is gated by the tailnet.
+ExecStart=/home/rlab-camera/rlab-camera/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
