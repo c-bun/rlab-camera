@@ -15,7 +15,8 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 from .config import ensure_dirs
-from .routers import capture, images, presets
+from .routers import capture, experiments, images, presets
+from .scheduler import make_scheduler, reconcile_on_startup
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -25,7 +26,16 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 async def lifespan(app: FastAPI):
     ensure_dirs()
     db.init_db()
-    yield
+    # Start the timecourse scheduler and re-arm any run that was active before a
+    # restart (SQLite is the source of truth for runs; see app/scheduler.py).
+    scheduler = make_scheduler()
+    scheduler.start()
+    app.state.scheduler = scheduler
+    reconcile_on_startup(scheduler)
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="rlab-camera", lifespan=lifespan)
@@ -37,6 +47,8 @@ app.state.templates = templates
 app.include_router(capture.router)
 app.include_router(images.router)
 app.include_router(presets.router)
+app.include_router(experiments.router)
+app.include_router(experiments.page_router)
 
 
 @app.get("/healthz")

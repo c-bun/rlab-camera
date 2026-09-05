@@ -12,6 +12,10 @@ header {
   border-bottom: 1px solid #8883;
 }
 h1 { font-size: 1.1rem; margin: 0; }
+.nav { display: flex; gap: 0.75rem; }
+.nav a { text-decoration: none; opacity: 0.7; font-weight: 600; }
+.nav a.active { opacity: 1; text-decoration: underline; }
+.nav a:hover { opacity: 1; }
 .badge {
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
@@ -32,7 +36,8 @@ h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; opaci
 .field .meta { font-size: 0.75rem; opacity: 0.6; }
 .info-icon { font-weight: 400; opacity: 0.55; cursor: help; font-size: 0.85em; }
 .info-icon:hover { opacity: 0.9; }
-.field input[type="number"], .field select { width: 100%; padding: 0.3rem; }
+.field input[type="number"], .field input[type="text"], .field select, .field textarea { width: 100%; padding: 0.3rem; }
+.field textarea { font: inherit; resize: vertical; }
 button {
   padding: 0.5rem 1rem;
   font-weight: 600;
@@ -47,6 +52,14 @@ button {
 .card .info { padding: 0.4rem 0.5rem; font-size: 0.75rem; }
 .card a { display: inline-block; margin-top: 0.25rem; }
 .card .use-settings-btn { display: block; margin-top: 0.35rem; padding: 0.25rem 0.5rem; font-size: 0.7rem; }
+
+/* Timecourse run progress */
+#run-name { font-size: 1rem; margin: 0.25rem 0; }
+.run-notes { white-space: pre-wrap; opacity: 0.75; margin: 0.25rem 0 0.75rem; }
+#progress-bar { height: 0.6rem; border-radius: 999px; background: #8882; overflow: hidden; margin: 0.5rem 0; }
+#progress-fill { height: 100%; width: 0; background: #4a90d9; transition: width 0.3s ease; }
+#run-progress { font-variant-numeric: tabular-nums; }
+#frame-estimate { margin: 0.25rem 0 1rem; }
 
 #presets-panel { margin-top: 1.25rem; border-top: 1px solid #8883; padding-top: 0.75rem; }
 .preset-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }

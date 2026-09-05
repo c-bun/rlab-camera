@@ -1,7 +1,9 @@
 """SQLite persistence for captured-image metadata.
 
-Kept deliberately small for the MVP: one `images` table. Experiment/scheduling
-tables will be added alongside the APScheduler work.
+Tables: `images` (every capture, optionally tagged with the `experiment_id` of the
+timecourse run that produced it), `presets` (named control-panel settings), and
+`experiments` (timecourse run definitions + status; SQLite is the source of truth
+the scheduler re-arms from on startup).
 """
 
 from __future__ import annotations
@@ -30,6 +32,21 @@ CREATE TABLE IF NOT EXISTS presets (
     settings_json TEXT NOT NULL,
     created_at    TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS experiments (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    name             TEXT NOT NULL,
+    notes            TEXT,
+    settings_json    TEXT NOT NULL,
+    interval_seconds REAL NOT NULL,
+    duration_seconds REAL NOT NULL,
+    status           TEXT NOT NULL,      -- running | complete | stopped
+    created_at       TEXT NOT NULL,
+    started_at       TEXT NOT NULL,
+    ended_at         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_images_experiment ON images(experiment_id);
 """
 
 
@@ -73,9 +90,17 @@ def insert_image(
         return int(cur.lastrowid)
 
 
-def list_images(limit: int = 200) -> list[dict[str, Any]]:
+def list_images(limit: int = 200, experiment_id: int | None = None) -> list[dict[str, Any]]:
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM images ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        if experiment_id is None:
+            rows = conn.execute(
+                "SELECT * FROM images ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM images WHERE experiment_id = ? ORDER BY id DESC LIMIT ?",
+                (experiment_id, limit),
+            ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
@@ -122,6 +147,75 @@ def delete_preset(preset_id: int) -> bool:
     with connect() as conn:
         cur = conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
         return cur.rowcount > 0
+
+
+# --- Experiments (timecourse runs) ---
+
+
+def insert_experiment(
+    *,
+    name: str,
+    notes: str | None,
+    settings: dict[str, Any],
+    interval_seconds: float,
+    duration_seconds: float,
+    started_at: str,
+    created_at: str,
+) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO experiments
+               (name, notes, settings_json, interval_seconds, duration_seconds,
+                status, created_at, started_at, ended_at)
+               VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL)""",
+            (
+                name,
+                notes,
+                json.dumps(settings, default=str),
+                interval_seconds,
+                duration_seconds,
+                created_at,
+                started_at,
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def get_experiment(experiment_id: int) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def list_experiments() -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM experiments ORDER BY id DESC").fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_active_experiment() -> dict[str, Any] | None:
+    """The single running experiment, if any. The app enforces at most one at a time."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM experiments WHERE status = 'running' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def set_experiment_status(experiment_id: int, status: str, *, ended_at: str | None = None) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE experiments SET status = ?, ended_at = ? WHERE id = ?",
+            (status, ended_at, experiment_id),
+        )
+
+
+def count_experiment_images(experiment_id: int) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM images WHERE experiment_id = ?", (experiment_id,)
+        ).fetchone()
+    return int(row["n"])
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

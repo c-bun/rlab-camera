@@ -25,6 +25,17 @@ def client(tmp_path, monkeypatch):
     importlib.reload(factory)
     factory.get_camera.cache_clear()
 
+    # Modules that read config/db at import time, in dependency order.
+    from app import capture_service
+
+    importlib.reload(capture_service)
+    from app import scheduler as scheduler_module
+
+    importlib.reload(scheduler_module)
+    from app.routers import experiments as experiments_module
+
+    importlib.reload(experiments_module)
+
     from app import main
 
     importlib.reload(main)
