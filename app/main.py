@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 from .config import ensure_dirs
-from .routers import capture, experiments, images, presets
+from .routers import capture, experiments, gallery, images, presets
 from .scheduler import make_scheduler, reconcile_on_startup
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +49,8 @@ app.include_router(images.router)
 app.include_router(presets.router)
 app.include_router(experiments.router)
 app.include_router(experiments.page_router)
+app.include_router(gallery.router)
+app.include_router(gallery.page_router)
 
 
 @app.get("/healthz")

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rlab-camera · gallery</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/gallery.css">
+</head>
+<body>
+  <header>
+    <h1>rlab-camera</h1>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/timecourse">Timecourse</a>
+      <a href="/gallery" class="active">Gallery</a>
+    </nav>
+    <span class="badge">backend: {{ backend }}</span>
+  </header>
+
+  <main>
+    <section id="gallery-section">
+      <div class="gallery-toolbar">
+        <label class="select-all">
+          <input id="select-all" type="checkbox">
+          Select all
+        </label>
+        <span id="selected-count" class="meta">0 selected</span>
+        <button id="download-btn" type="button" disabled>Download selected</button>
+      </div>
+      <p id="status"></p>
+      <div id="gallery-grid"></div>
+    </section>
+  </main>
+
+  <script src="/static/gallery.js"></script>
+</body>
+</html>

@@ -110,6 +110,46 @@ def get_image(image_id: int) -> dict[str, Any] | None:
     return _row_to_dict(row) if row else None
 
 
+def list_ungrouped_images(limit: int = 1000) -> list[dict[str, Any]]:
+    """Ad-hoc captures — those not tagged with a timecourse run — newest first."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM images WHERE experiment_id IS NULL ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def list_images_by_ids(ids: list[int]) -> list[dict[str, Any]]:
+    """Fetch specific images by id (used to assemble batch-download zips)."""
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM images WHERE id IN ({placeholders}) ORDER BY id DESC",
+            tuple(ids),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def experiment_gallery_summaries() -> list[dict[str, Any]]:
+    """One row per timecourse run that has captured frames: frame count and the id
+    of its newest frame (used as the stack's cover thumbnail). Single aggregate
+    query — no per-experiment COUNT(*) loop."""
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT experiment_id, COUNT(*) AS n, MAX(id) AS cover_id
+               FROM images
+               WHERE experiment_id IS NOT NULL
+               GROUP BY experiment_id"""
+        ).fetchall()
+    return [
+        {"experiment_id": r["experiment_id"], "count": r["n"], "cover_id": r["cover_id"]}
+        for r in rows
+    ]
+
+
 def upsert_preset(
     *,
     name: str,

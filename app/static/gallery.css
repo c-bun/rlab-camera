@@ -1,0 +1,81 @@
+/* The gallery is a single full-width column, unlike the two-column capture page. */
+main { grid-template-columns: 1fr; }
+
+.gallery-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  margin-bottom: 0.75rem;
+  background: Canvas;
+  border-bottom: 1px solid #8883;
+}
+.gallery-toolbar .select-all { display: flex; align-items: center; gap: 0.35rem; font-weight: 600; }
+#selected-count { opacity: 0.7; }
+#download-btn { margin-left: auto; }
+
+#gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.9rem;
+}
+
+/* A tile wraps a card so the checkbox can sit over the thumbnail. */
+.tile { position: relative; }
+.tile-check {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 1;
+  width: 1.1rem;
+  height: 1.1rem;
+  cursor: pointer;
+  accent-color: #4a90d9;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+/* The "deck" look for a timecourse run: offset layers peek out behind the card. */
+.stack .card { position: relative; cursor: pointer; }
+.stack .card::before,
+.stack .card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid #8883;
+  border-radius: 6px;
+  background: Canvas;
+  z-index: -1;
+}
+.stack .card::before { transform: translate(4px, 4px); }
+.stack .card::after { transform: translate(8px, 8px); }
+.stack { margin-right: 8px; margin-bottom: 8px; }
+
+.card .badge-count {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: #4a90d9;
+  color: #fff;
+  margin-left: 0.25rem;
+}
+.card .run-name { font-weight: 600; display: block; margin-bottom: 0.15rem; }
+
+/* Inline expansion of a run's frames, spanning the full grid width. */
+.frames-expander {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  margin: 0 0 0.5rem;
+  border: 1px dashed #8884;
+  border-radius: 6px;
+  background: #8881;
+}
+.frames-expander .empty { opacity: 0.6; font-style: italic; }
+
+.gallery-empty { opacity: 0.6; font-style: italic; }
