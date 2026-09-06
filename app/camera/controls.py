@@ -102,18 +102,6 @@ MANUAL_CONTROLS: list[CameraControl] = [
         description="Auto-exposure bias in stops; only affects captures where exposure is "
         "left to the camera rather than set manually.",
     ),
-    CameraControl(
-        "FrameRate",
-        "Frame rate",
-        "number",
-        min=0.1,
-        max=120.0,
-        default=30.0,
-        step=0.1,
-        unit="fps",
-        description="Sensor frame rate. Its inverse caps the maximum exposure time, so lower "
-        "it for very long exposures.",
-    ),
 ]
 
 

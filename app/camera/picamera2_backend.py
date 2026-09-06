@@ -22,12 +22,15 @@ _PREVIEW_SIZE = (1014, 760)
 
 # Our control names that map 1:1 onto picamera2 control names. The rest
 # (colour gains, resolution, format) are translated in capture().
+# FrameRate is deliberately absent: pinning it fixes FrameDurationLimits, which caps
+# ExposureTime (a FrameRate of 30 clamps exposures to ~33 ms). By not sending it, the
+# sensor mode's native frame-duration ceiling stretches to fit long manual exposures.
+# The achieved frame duration is still recorded per capture in _sensor_metadata.
 _PICAMERA2_DIRECT = {
     "ExposureTime",
     "AnalogueGain",
     "AwbEnable",
     "ExposureValue",
-    "FrameRate",
 }
 
 _AWB_OFF_VALUES = (False, "false", "False", "off", "0", 0)
