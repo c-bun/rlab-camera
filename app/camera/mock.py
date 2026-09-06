@@ -32,17 +32,13 @@ class MockCamera(CameraBackend):
     def capture(self, settings: dict[str, Any], dest: Path) -> CaptureResult:
         applied = self._apply(settings)
         width, height = _parse_resolution(applied.get("resolution", "1332x990"))
-        image_format = str(applied.get("image_format", "jpeg")).lower()
+        image_format = "tiff"
 
         img = self._render(width, height, image_format, applied)
 
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if image_format in ("tiff", "tif"):
-            # Lossless + capture settings embedded as ImageJ-readable metadata.
-            write_imagej_tiff(dest, np.asarray(img), applied)
-        else:
-            pil_format = "JPEG" if image_format in ("jpg", "jpeg") else image_format.upper()
-            img.save(dest, format=pil_format)
+        # Lossless + capture settings embedded as ImageJ-readable metadata.
+        write_imagej_tiff(dest, np.asarray(img), applied)
 
         return CaptureResult(
             path=dest,

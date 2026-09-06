@@ -15,8 +15,6 @@ from typing import Any
 from . import config, db
 from .camera import get_camera
 
-_EXT = {"jpg": "jpg", "jpeg": "jpg", "png": "png", "tiff": "tiff", "tif": "tiff"}
-
 
 def perform_capture(
     settings: dict[str, Any], *, experiment_id: int | None = None
@@ -28,9 +26,7 @@ def perform_capture(
     """
     camera = get_camera()
     now = datetime.now(UTC)
-    fmt = str(settings.get("image_format", "jpeg")).lower()
-    ext = _EXT.get(fmt, "jpg")
-    filename = f"{now.strftime('%Y%m%dT%H%M%S%f')}.{ext}"
+    filename = f"{now.strftime('%Y%m%dT%H%M%S%f')}.tiff"
     dest = config.IMAGES_DIR / filename
 
     # Include the capture timestamp in the settings the backend persists (and, for TIFF,

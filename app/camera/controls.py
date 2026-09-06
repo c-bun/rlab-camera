@@ -11,7 +11,6 @@ from .base import CameraControl
 
 # Resolutions the HQ camera commonly runs at (full sensor is 4056x3040).
 RESOLUTIONS = ["4056x3040", "2028x1520", "2028x1080", "1332x990"]
-IMAGE_FORMATS = ["jpeg", "png", "tiff"]
 AWB_MODES = ["auto", "incandescent", "tungsten", "fluorescent", "indoor", "daylight", "cloudy"]
 
 MANUAL_CONTROLS: list[CameraControl] = [
@@ -22,15 +21,6 @@ MANUAL_CONTROLS: list[CameraControl] = [
         default="4056x3040",
         choices=RESOLUTIONS,
         description="Capture resolution (width x height).",
-    ),
-    CameraControl(
-        "image_format",
-        "Format",
-        "choice",
-        default="jpeg",
-        choices=IMAGE_FORMATS,
-        description="File format. JPEG is compact; PNG is lossless; TIFF is lossless and "
-        "embeds the capture settings as ImageJ-readable metadata for analysis.",
     ),
     CameraControl(
         "ExposureTime",

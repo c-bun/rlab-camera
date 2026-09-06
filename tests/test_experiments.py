@@ -15,7 +15,7 @@ _RUN = {
     "notes": "sample A",
     "interval_seconds": 60,
     "duration_seconds": 600,
-    "settings": {"resolution": "1332x990", "image_format": "jpeg", "ExposureTime": 5000},
+    "settings": {"resolution": "1332x990", "ExposureTime": 5000},
 }
 
 
@@ -61,14 +61,14 @@ def test_scoped_images(client):
     exp_id = db.insert_experiment(
         name="scope",
         notes=None,
-        settings={"image_format": "jpeg"},
+        settings={},
         interval_seconds=60,
         duration_seconds=600,
         started_at=now,
         created_at=now,
     )
 
-    img = perform_capture({"image_format": "jpeg"}, experiment_id=exp_id)
+    img = perform_capture({}, experiment_id=exp_id)
     assert img["experiment_id"] == exp_id
     assert img["width"] > 0 and img["height"] > 0
 
@@ -100,7 +100,7 @@ def test_reconcile_finalizes_past_window(client):
     exp_id = db.insert_experiment(
         name="old",
         notes=None,
-        settings={"image_format": "jpeg"},
+        settings={},
         interval_seconds=60,
         duration_seconds=600,  # ended long ago
         started_at=past,
@@ -119,7 +119,7 @@ def test_reconcile_rearms_active_run(client):
     exp_id = db.insert_experiment(
         name="ongoing",
         notes=None,
-        settings={"image_format": "jpeg"},
+        settings={},
         interval_seconds=60,
         duration_seconds=3600,  # still well within the window
         started_at=started,

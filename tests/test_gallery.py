@@ -12,21 +12,19 @@ def _seed(client):
     from app import db
     from app.capture_service import perform_capture
 
-    manual = [perform_capture({"image_format": "jpeg"})["id"] for _ in range(2)]
+    manual = [perform_capture({})["id"] for _ in range(2)]
 
     now = datetime.now(UTC).isoformat()
     exp_id = db.insert_experiment(
         name="run one",
         notes="sample A",
-        settings={"image_format": "jpeg"},
+        settings={},
         interval_seconds=60,
         duration_seconds=600,
         started_at=now,
         created_at=now,
     )
-    frames = [
-        perform_capture({"image_format": "jpeg"}, experiment_id=exp_id)["id"] for _ in range(2)
-    ]
+    frames = [perform_capture({}, experiment_id=exp_id)["id"] for _ in range(2)]
     return manual, exp_id, frames
 
 
@@ -54,7 +52,7 @@ def test_run_without_frames_is_skipped(client):
     db.insert_experiment(
         name="empty",
         notes=None,
-        settings={"image_format": "jpeg"},
+        settings={},
         interval_seconds=60,
         duration_seconds=600,
         started_at=now,

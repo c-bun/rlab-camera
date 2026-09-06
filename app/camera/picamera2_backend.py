@@ -89,7 +89,7 @@ class Picamera2Camera(CameraBackend):
             # the frame we keep — otherwise the first capture reflects the old state.
             self._picam2.capture_request().release()
 
-            image_format = str(settings.get("image_format", "jpeg")).lower()
+            image_format = "tiff"
             request = self._picam2.capture_request()
             try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -104,12 +104,9 @@ class Picamera2Camera(CameraBackend):
                     "_sensor_metadata": metadata,
                 }
 
-                if image_format in ("tiff", "tif"):
-                    # Lossless TIFF carrying the applied settings + sensor metadata as an
-                    # ImageJ-readable Info property (request.save can't embed our metadata).
-                    write_imagej_tiff(dest, request.make_array("main"), applied)
-                else:
-                    request.save("main", str(dest))
+                # Lossless TIFF carrying the applied settings + sensor metadata as an
+                # ImageJ-readable Info property (request.save can't embed our metadata).
+                write_imagej_tiff(dest, request.make_array("main"), applied)
             finally:
                 request.release()
             return CaptureResult(
