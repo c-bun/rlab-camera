@@ -2,6 +2,13 @@
 // timecourse page (timecourse.js): build the manual-control form from the backend's
 // reported controls, read/write settings from it, and load/recall/delete presets.
 
+// Controls whose stored/API unit (from /api/controls, and in settings sent to the
+// backend) differs from what we display in the form. ExposureTime is stored/sent in
+// microseconds (that's what picamera2 expects) but shown here in seconds.
+const DISPLAY_UNIT_OVERRIDES = {
+  ExposureTime: { unit: "s", factor: 1e6 },
+};
+
 async function loadControls() {
   const res = await fetch("/api/controls");
   const { controls } = await res.json();
@@ -15,9 +22,12 @@ async function loadControls() {
 function renderField(c) {
   const wrap = document.createElement("div");
   wrap.className = "field";
+  const override = DISPLAY_UNIT_OVERRIDES[c.name];
+  const toDisplay = (v) => (v == null ? v : v / override.factor);
 
   const label = document.createElement("label");
-  label.textContent = c.label + (c.unit ? ` (${c.unit})` : "");
+  const unit = override ? override.unit : c.unit;
+  label.textContent = c.label + (unit ? ` (${unit})` : "");
   label.htmlFor = c.name;
   if (c.description) {
     // Show the explanation on hover so the form stays uncluttered.
@@ -29,6 +39,11 @@ function renderField(c) {
     label.append(" ", info);
   }
   wrap.appendChild(label);
+
+  const min = override ? toDisplay(c.min) : c.min;
+  const max = override ? toDisplay(c.max) : c.max;
+  const step = override ? toDisplay(c.step) : c.step;
+  const dflt = override ? toDisplay(c.default) : c.default;
 
   let input;
   if (c.kind === "choice") {
@@ -47,20 +62,20 @@ function renderField(c) {
   } else {
     input = document.createElement("input");
     input.type = "number";
-    if (c.min != null) input.min = c.min;
-    if (c.max != null) input.max = c.max;
-    if (c.step != null) input.step = c.step;
-    if (c.default != null) input.value = c.default;
+    if (min != null) input.min = min;
+    if (max != null) input.max = max;
+    if (step != null) input.step = step;
+    if (dflt != null) input.value = dflt;
   }
   input.id = c.name;
   input.name = c.name;
   input.dataset.kind = c.kind;
   wrap.appendChild(input);
 
-  if (c.min != null && c.max != null) {
+  if (min != null && max != null) {
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent = `range ${c.min} – ${c.max}`;
+    meta.textContent = `range ${min} – ${max}`;
     wrap.appendChild(meta);
   }
   return wrap;
@@ -70,8 +85,16 @@ function collectSettings() {
   const settings = {};
   for (const el of document.querySelectorAll("#controls-form [name]")) {
     if (el.dataset.kind === "bool") settings[el.name] = el.checked;
-    else if (el.dataset.kind === "number") settings[el.name] = el.value === "" ? null : Number(el.value);
-    else settings[el.name] = el.value;
+    else if (el.dataset.kind === "number") {
+      if (el.value === "") {
+        settings[el.name] = null;
+      } else {
+        const override = DISPLAY_UNIT_OVERRIDES[el.name];
+        settings[el.name] = override
+          ? Math.round(Number(el.value) * override.factor)
+          : Number(el.value);
+      }
+    } else settings[el.name] = el.value;
   }
   return settings;
 }
@@ -84,7 +107,10 @@ function applySettings(settings) {
   for (const el of document.querySelectorAll("#controls-form [name]")) {
     if (!(el.name in settings) || settings[el.name] == null) continue;
     if (el.dataset.kind === "bool") el.checked = !!settings[el.name];
-    else el.value = settings[el.name];
+    else {
+      const override = DISPLAY_UNIT_OVERRIDES[el.name];
+      el.value = override ? settings[el.name] / override.factor : settings[el.name];
+    }
   }
 }
 

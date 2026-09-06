@@ -16,8 +16,8 @@ function expectedFrames(interval, duration) {
 }
 
 function updateEstimate() {
-  const interval = Number($("exp-interval").value);
-  const duration = Number($("exp-duration").value);
+  const interval = Number($("exp-interval").value) * 60;
+  const duration = Number($("exp-duration").value) * 3600;
   const n = expectedFrames(interval, duration);
   $("frame-estimate").textContent =
     n == null ? "Enter an interval ≤ duration." : `≈ ${n} frames over this run.`;
@@ -61,8 +61,8 @@ async function startRun() {
       body: JSON.stringify({
         name,
         notes: $("exp-notes").value.trim(),
-        interval_seconds: Number($("exp-interval").value),
-        duration_seconds: Number($("exp-duration").value),
+        interval_seconds: Number($("exp-interval").value) * 60,
+        duration_seconds: Number($("exp-duration").value) * 3600,
         settings: collectSettings(),
       }),
     });

@@ -41,7 +41,9 @@ MANUAL_CONTROLS: list[CameraControl] = [
         default=10_000,
         step=100,
         unit="µs",
-        description="Shutter/exposure time in microseconds.",
+        description="Shutter/exposure time. Entered and displayed in seconds; the "
+        "Raspberry Pi HQ Camera (IMX477) supports roughly 0.00011–694 s (up to "
+        "~11.6 minutes), refined at runtime from the sensor.",
     ),
     CameraControl(
         "AnalogueGain",
