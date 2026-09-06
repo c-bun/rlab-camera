@@ -25,11 +25,24 @@ h1 { font-size: 1.1rem; margin: 0; }
 }
 main {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: 1fr;
   gap: 1.5rem;
   padding: 1.25rem;
 }
-@media (max-width: 720px) { main { grid-template-columns: 1fr; } }
+/* Setup sits above the fold: settings on the left flow into short columns,
+   live view + capture on the right. Recent images are the full-width row below. */
+#setup-panel {
+  display: grid;
+  grid-template-columns: 1fr minmax(300px, 340px);
+  gap: 1.5rem;
+  align-items: start;
+}
+#controls-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0 1.25rem;
+}
+@media (max-width: 720px) { #setup-panel { grid-template-columns: 1fr; } }
 h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
 .field { display: grid; gap: 0.2rem; margin-bottom: 0.75rem; }
 .field label { font-weight: 600; }
@@ -43,8 +56,22 @@ button {
   font-weight: 600;
   cursor: pointer;
 }
-#preview-panel { margin: 0.75rem 0; display: grid; gap: 0.5rem; }
-#preview { width: 100%; border: 1px solid #8883; border-radius: 6px; background: #8881; }
+#timecourse-toggle-row { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; margin: 0.75rem 0 0.5rem; cursor: pointer; }
+#timecourse-toggle-row input { width: auto; cursor: pointer; }
+#timecourse-fields {
+  border-top: 1px solid #8883; padding-top: 0.75rem; margin-bottom: 0.5rem;
+}
+/* :not([hidden]) so the explicit display doesn't override the `hidden` attribute
+   (an ID selector outweighs the UA [hidden] rule). */
+#timecourse-fields:not([hidden]) {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 1.25rem;
+}
+/* Fields that should span the whole grid row (name, notes, estimate). */
+.field-wide { grid-column: 1 / -1; }
+#capture-col { display: grid; gap: 0.75rem; align-content: start; }
+#capture-col #capture-btn { width: 100%; }
+#preview-panel { margin: 0; display: grid; gap: 0.5rem; }
+#preview { width: 100%; max-height: 55vh; object-fit: contain; border: 1px solid #8883; border-radius: 6px; background: #8881; }
 #status { min-height: 1.2em; opacity: 0.8; }
 #gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; }
 .card { border: 1px solid #8883; border-radius: 6px; overflow: hidden; }

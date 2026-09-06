@@ -12,7 +12,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
 
 from .. import db
 from ..scheduler import (
@@ -115,15 +114,3 @@ def stop_experiment(request: Request, experiment_id: int) -> dict[str, Any]:
     if exp["status"] == "running":
         db.set_experiment_status(experiment_id, "stopped", ended_at=datetime.now(UTC).isoformat())
     return _with_progress(db.get_experiment(experiment_id))
-
-
-# The timecourse page itself (no /api prefix), served from its own router.
-page_router = APIRouter()
-
-
-@page_router.get("/timecourse", response_class=HTMLResponse)
-def timecourse_page(request: Request) -> HTMLResponse:
-    from ..camera import get_camera
-
-    templates = request.app.state.templates
-    return templates.TemplateResponse(request, "timecourse.html", {"backend": get_camera().name})

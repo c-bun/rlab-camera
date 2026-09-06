@@ -48,7 +48,6 @@ app.include_router(capture.router)
 app.include_router(images.router)
 app.include_router(presets.router)
 app.include_router(experiments.router)
-app.include_router(experiments.page_router)
 app.include_router(gallery.router)
 app.include_router(gallery.page_router)
 

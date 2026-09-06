@@ -11,7 +11,6 @@
     <h1>rlab-camera</h1>
     <nav class="nav">
       <a href="/" class="active">Capture</a>
-      <a href="/timecourse">Timecourse</a>
       <a href="/gallery">Gallery</a>
     </nav>
     <span class="badge">backend: {{ backend }}</span>
@@ -19,27 +18,74 @@
 
   <main>
     <section id="controls-panel">
-      <h2>Manual controls</h2>
-      <form id="controls-form"><!-- built from /api/controls --></form>
-      <div id="preview-panel">
-        <button id="preview-btn" type="button">Start live view</button>
-        <img id="preview" alt="live preview" hidden>
-      </div>
-      <button id="capture-btn" type="button">Capture</button>
-      <p id="status"></p>
+      <!-- Setup: the control form + optional timecourse settings, shown when no run
+           is active. Two columns: settings on the left, live view + capture on the
+           right, so the whole setup fits without scrolling. -->
+      <div id="setup-panel">
+        <div id="settings-col">
+          <h2>Manual controls</h2>
+          <form id="controls-form"><!-- built from /api/controls --></form>
 
-      <div id="presets-panel">
-        <h2>Presets</h2>
-        <div class="preset-row">
-          <input id="preset-name" type="text" placeholder="Preset name" autocomplete="off">
-          <button id="save-preset-btn" type="button">Save preset</button>
+          <label id="timecourse-toggle-row">
+            <input id="timecourse-toggle" type="checkbox">
+            Timecourse run
+          </label>
+          <div id="timecourse-fields" hidden>
+            <div class="field field-wide">
+              <label for="exp-name">Name</label>
+              <input id="exp-name" type="text" placeholder="e.g. plate A, 6h" autocomplete="off">
+            </div>
+            <div class="field field-wide">
+              <label for="exp-notes">Experimental details (optional)</label>
+              <textarea id="exp-notes" rows="3" placeholder="Sample, conditions, anything worth recording…"></textarea>
+            </div>
+            <div class="field">
+              <label for="exp-interval">Interval (min)</label>
+              <input id="exp-interval" type="number" min="0.01" step="0.01" value="0.5">
+            </div>
+            <div class="field">
+              <label for="exp-duration">Duration (hr)</label>
+              <input id="exp-duration" type="number" min="0.01" step="0.01" value="1">
+            </div>
+            <p id="frame-estimate" class="meta field-wide"></p>
+          </div>
+
+          <div id="presets-panel">
+            <h2>Presets</h2>
+            <div class="preset-row">
+              <input id="preset-name" type="text" placeholder="Preset name" autocomplete="off">
+              <button id="save-preset-btn" type="button">Save preset</button>
+            </div>
+            <ul id="presets-list"><!-- built from /api/presets --></ul>
+          </div>
         </div>
-        <ul id="presets-list"><!-- built from /api/presets --></ul>
+
+        <div id="capture-col">
+          <div id="preview-panel">
+            <button id="preview-btn" type="button">Stop live view</button>
+            <img id="preview" alt="live preview" hidden>
+          </div>
+          <button id="capture-btn" type="button">Capture</button>
+        </div>
       </div>
+
+      <!-- Running: shown while a timecourse run is active (or after it finishes,
+           until reset). -->
+      <div id="running-panel" hidden>
+        <h2>Run in progress</h2>
+        <h3 id="run-name"></h3>
+        <p id="run-notes" class="run-notes"></p>
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <p id="run-progress"></p>
+        <button id="stop-btn" type="button">Stop run</button>
+        <button id="new-btn" type="button" hidden>New run</button>
+      </div>
+
+      <p id="status"></p>
     </section>
 
     <section id="gallery-panel">
-      <h2>Captures</h2>
+      <h2>Recent</h2>
       <div id="gallery"></div>
     </section>
   </main>
