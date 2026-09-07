@@ -19,6 +19,39 @@ async function loadControls() {
   }
 }
 
+// Build the illumination controls (colour picker, brightness, enable) into their own
+// container — separate from #controls-form so loadControls()'s innerHTML reset can't wipe
+// them — plus quick colour-preset buttons.
+async function loadIllumination() {
+  const res = await fetch("/api/illumination/controls");
+  const { controls, presets } = await res.json();
+  const form = document.getElementById("illumination-form");
+  form.innerHTML = "";
+  for (const c of controls) {
+    form.appendChild(renderField(c));
+  }
+
+  const row = document.getElementById("illumination-presets");
+  row.innerHTML = "";
+  for (const [label, color] of Object.entries(presets || {})) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.className = "illum-preset";
+    btn.addEventListener("click", () => {
+      const enable = document.getElementById("illum_enable");
+      if (label === "off") {
+        if (enable) enable.checked = false;
+      } else {
+        if (enable) enable.checked = true;
+        const picker = document.getElementById("illum_color");
+        if (picker) picker.value = color;
+      }
+    });
+    row.appendChild(btn);
+  }
+}
+
 function renderField(c) {
   const wrap = document.createElement("div");
   wrap.className = "field";
@@ -59,6 +92,10 @@ function renderField(c) {
     input = document.createElement("input");
     input.type = "checkbox";
     input.checked = !!c.default;
+  } else if (c.kind === "color") {
+    input = document.createElement("input");
+    input.type = "color";
+    if (c.default != null) input.value = c.default;
   } else {
     input = document.createElement("input");
     input.type = "number";
@@ -81,9 +118,14 @@ function renderField(c) {
   return wrap;
 }
 
+// Both the camera controls (#controls-form) and the illumination controls
+// (#illumination-form) contribute to the flat settings dict, so downstream (capture,
+// preview, experiments, presets) carries illumination with no further change.
+const SETTINGS_SELECTOR = "#controls-form [name], #illumination-form [name]";
+
 function collectSettings() {
   const settings = {};
-  for (const el of document.querySelectorAll("#controls-form [name]")) {
+  for (const el of document.querySelectorAll(SETTINGS_SELECTOR)) {
     if (el.dataset.kind === "bool") settings[el.name] = el.checked;
     else if (el.dataset.kind === "number") {
       if (el.value === "") {
@@ -104,7 +146,7 @@ function collectSettings() {
 // aren't controls — captured_at, the actual resolution recorded on a capture — are
 // simply ignored. If a live preview is running it picks up the change on its next poll.
 function applySettings(settings) {
-  for (const el of document.querySelectorAll("#controls-form [name]")) {
+  for (const el of document.querySelectorAll(SETTINGS_SELECTOR)) {
     if (!(el.name in settings) || settings[el.name] == null) continue;
     if (el.dataset.kind === "bool") el.checked = !!settings[el.name];
     else {

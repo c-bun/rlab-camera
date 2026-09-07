@@ -14,6 +14,7 @@ from typing import Any
 
 from . import config, db
 from .camera import get_camera
+from .illumination import get_illumination
 
 
 def perform_capture(
@@ -25,6 +26,7 @@ def perform_capture(
     given the image is tagged to that timecourse run.
     """
     camera = get_camera()
+    illumination = get_illumination()
     now = datetime.now(UTC)
     filename = f"{now.strftime('%Y%m%dT%H%M%S%f')}.tiff"
     dest = config.IMAGES_DIR / filename
@@ -32,7 +34,17 @@ def perform_capture(
     # Include the capture timestamp in the settings the backend persists (and, for TIFF,
     # embeds as ImageJ metadata) so an exported file carries when it was taken.
     settings = {**settings, "captured_at": now.isoformat()}
-    result = camera.capture(settings, dest)
+
+    # Illumination is synced to the capture: light the panels just before the frame and
+    # turn them off after. During live view the preview loop keeps them lit separately.
+    applied_illum = illumination.apply(settings)
+    try:
+        result = camera.capture(settings, dest)
+    finally:
+        illumination.off()
+    # Record what the panels actually did. The mock camera rebuilds applied_settings from
+    # its own control set (dropping illum_* keys), so merge here to persist on any backend.
+    result.applied_settings.update(applied_illum)
 
     image_id = db.insert_image(
         filename=filename,

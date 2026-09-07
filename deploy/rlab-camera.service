@@ -8,6 +8,10 @@ Type=simple
 User=rlab-camera
 WorkingDirectory=/home/rlab-camera/rlab-camera
 Environment=CAMERA_BACKEND=picamera2
+# LED illumination panels over Bluetooth. List each panel's BLE address (or advertised
+# name), comma-separated. Leave RLAB_PANELS empty to run without panels (mock backend).
+Environment=ILLUMINATION_BACKEND=ble
+Environment=RLAB_PANELS=
 # Bind 0.0.0.0 so Tailscale peers can reach it; access is gated by the tailnet.
 ExecStart=/home/rlab-camera/rlab-camera/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure

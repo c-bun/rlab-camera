@@ -56,9 +56,18 @@ function stopPreview() {
   $("preview-btn").textContent = "Start live view";
 }
 
+// Turn the LED panels off. Used when the user stops live view or a run starts — NOT in
+// stopPreview() itself, since a manual capture pauses the preview there and then relies on
+// the capture to drive the panels (on→off), which turning them off here would race.
+function illuminationOff() {
+  fetch("/api/illumination/off", { method: "POST" }).catch(() => {});
+}
+
 function togglePreview() {
-  if (isPreviewing()) stopPreview();
-  else startPreview();
+  if (isPreviewing()) {
+    stopPreview();
+    illuminationOff();
+  } else startPreview();
 }
 
 // --- Single manual capture ---
@@ -252,8 +261,11 @@ async function stopRun() {
 
 function enterRun(exp) {
   currentExpId = exp.id;
-  // The run drives the camera on its own cadence; live view would fight it.
+  // The run drives the camera on its own cadence; live view would fight it. Panels are
+  // synced per-frame by perform_capture, so they stay dark between frames — turn them off
+  // now (they were lit by live view).
   stopPreview();
+  illuminationOff();
   // Keep timecourse mode selected so ending the run returns to the run-setup fields.
   $("timecourse-toggle").checked = true;
   syncTimecourseUI();
@@ -327,6 +339,7 @@ function stopPolling() {
 // the live view for a fresh setup.
 async function init() {
   await loadControls();
+  await loadIllumination();
   await loadPresets();
   await loadGallery();
   updateEstimate();

@@ -7,6 +7,7 @@ apscheduler>=3.10
 pillow>=10.0
 numpy>=1.24
 tifffile>=2023.7.10  # ImageJ-readable TIFF export (embeds capture settings)
+bleak>=0.21  # Bluetooth LE control of the LED illumination panels (BlueZ on the Pi)
 
 # On the Raspberry Pi, picamera2 is installed via the system package manager,
 # not pip:

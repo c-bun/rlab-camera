@@ -88,6 +88,11 @@ button {
 #run-progress { font-variant-numeric: tabular-nums; }
 #frame-estimate { margin: 0.25rem 0 1rem; }
 
+#illumination-panel { margin-top: 1.25rem; border-top: 1px solid #8883; padding-top: 0.75rem; }
+.field input[type="color"] { width: 100%; height: 2.2rem; padding: 0.15rem; }
+#illumination-presets { flex-wrap: wrap; }
+.illum-preset { text-transform: capitalize; }
+
 #presets-panel { margin-top: 1.25rem; border-top: 1px solid #8883; padding-top: 0.75rem; }
 .preset-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
 .preset-row input { flex: 1; padding: 0.3rem; }

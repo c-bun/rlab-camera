@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from ..camera import get_camera
 from ..capture_service import perform_capture
+from ..illumination import get_illumination
 
 router = APIRouter()
 
@@ -37,6 +38,9 @@ def get_controls() -> dict[str, Any]:
 def preview(settings: dict[str, Any]) -> Response:
     # Live view: apply the same settings as a capture but return an in-memory JPEG
     # frame — no file on disk, no DB row. Called repeatedly at a low framerate.
+    # Keep the panels lit to match what a capture would see (the backend skips
+    # redundant BLE writes, so re-applying every poll is cheap).
+    get_illumination().apply(settings)
     camera = get_camera()
     return Response(content=camera.preview(settings), media_type="image/jpeg")
 

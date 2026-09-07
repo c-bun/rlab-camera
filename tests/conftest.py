@@ -25,6 +25,18 @@ def client(tmp_path, monkeypatch):
     importlib.reload(factory)
     factory.get_camera.cache_clear()
 
+    # Illumination defaults to the mock backend (no RLAB_PANELS set), like the camera.
+    # Reload the package too so its re-exported get_illumination (used by the app via
+    # `from .illumination import get_illumination`) rebinds to the fresh, cache-cleared
+    # factory function — otherwise the app and the tests hold different singletons.
+    from app.illumination import factory as illum_factory
+
+    importlib.reload(illum_factory)
+    import app.illumination as illum_pkg
+
+    importlib.reload(illum_pkg)
+    illum_pkg.get_illumination.cache_clear()
+
     # Modules that read config/db at import time, in dependency order.
     from app import capture_service
 
@@ -35,6 +47,14 @@ def client(tmp_path, monkeypatch):
     from app.routers import experiments as experiments_module
 
     importlib.reload(experiments_module)
+    # Routers that hold get_illumination/perform_capture bindings must reload after those
+    # modules so they don't keep a stale singleton from a previous test's reload.
+    from app.routers import capture as capture_router
+
+    importlib.reload(capture_router)
+    from app.routers import illumination as illumination_router
+
+    importlib.reload(illumination_router)
 
     from app import main
 
@@ -46,3 +66,4 @@ def client(tmp_path, monkeypatch):
         yield c
 
     factory.get_camera.cache_clear()
+    illum_pkg.get_illumination.cache_clear()

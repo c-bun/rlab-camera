@@ -24,6 +24,29 @@ sudo systemctl enable --now rlab-camera
 The app then listens on `0.0.0.0:8000` and is reachable from any tailnet peer at
 `http://<pi-tailscale-ip>:8000/`.
 
+## LED illumination panels (Bluetooth)
+
+The Pi controls the Waveshare LED panels over Bluetooth LE (via `bleak`/BlueZ, already on
+Raspberry Pi OS). Flash each Pico W panel per [`panel_firmware/README.md`](../panel_firmware/README.md),
+then tell the app which panels exist:
+
+1. Find each panel's BLE address (or advertised name) — with the panel powered and running
+   its firmware:
+   ```bash
+   bluetoothctl
+   scan on        # look for "rlab-panel…", note the address, then: scan off / exit
+   ```
+2. In `deploy/rlab-camera.service` set `ILLUMINATION_BACKEND=ble` and list the panels in
+   `RLAB_PANELS` (comma-separated addresses/names), then reinstall the unit and restart:
+   ```bash
+   sudo cp deploy/rlab-camera.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl restart rlab-camera
+   ```
+
+With `RLAB_PANELS` empty (or `ILLUMINATION_BACKEND` unset), the app runs on the mock
+illumination backend and touches no Bluetooth — the Illumination UI still renders but
+drives nothing.
+
 ## Updating
 
 ```bash

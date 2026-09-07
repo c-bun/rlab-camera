@@ -12,6 +12,10 @@ IMAGES_DIR = DATA_DIR / "images"
 THUMBS_DIR = DATA_DIR / "thumbs"
 DB_PATH = Path(os.environ.get("RLAB_DB_PATH", str(DATA_DIR / "rlab.db"))).resolve()
 
+# BLE addresses (or names) of the LED illumination panels, comma-separated. Empty off-Pi;
+# on the Pi set RLAB_PANELS so the "auto" illumination backend picks the Bluetooth panels.
+PANELS = [p.strip() for p in os.environ.get("RLAB_PANELS", "").split(",") if p.strip()]
+
 
 def ensure_dirs() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)

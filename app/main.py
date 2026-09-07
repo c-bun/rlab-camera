@@ -15,7 +15,8 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 from .config import ensure_dirs
-from .routers import capture, experiments, gallery, images, presets
+from .illumination import get_illumination
+from .routers import capture, experiments, gallery, illumination, images, presets
 from .scheduler import make_scheduler, reconcile_on_startup
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,6 +37,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         scheduler.shutdown(wait=False)
+        # Tear down BLE panel connections cleanly (no-op for the mock backend).
+        get_illumination().close()
 
 
 app = FastAPI(title="rlab-camera", lifespan=lifespan)
@@ -45,6 +48,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 app.state.templates = templates
 
 app.include_router(capture.router)
+app.include_router(illumination.router)
 app.include_router(images.router)
 app.include_router(presets.router)
 app.include_router(experiments.router)
