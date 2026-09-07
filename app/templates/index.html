@@ -33,6 +33,23 @@
             <p id="illum-status" class="illum-warn" hidden></p>
           </div>
 
+          <div id="presets-panel">
+            <h2>Presets</h2>
+            <div class="preset-row">
+              <input id="preset-name" type="text" placeholder="Preset name" autocomplete="off">
+              <button id="save-preset-btn" type="button">Save preset</button>
+            </div>
+            <ul id="presets-list"><!-- built from /api/presets --></ul>
+          </div>
+        </div>
+
+        <div id="capture-col">
+          <div id="preview-panel">
+            <button id="preview-btn" type="button">Stop live view</button>
+            <img id="preview" alt="live preview" hidden>
+          </div>
+          <button id="capture-btn" type="button">Capture</button>
+
           <label id="timecourse-toggle-row">
             <input id="timecourse-toggle" type="checkbox">
             Timecourse run
@@ -56,23 +73,6 @@
             </div>
             <p id="frame-estimate" class="meta field-wide"></p>
           </div>
-
-          <div id="presets-panel">
-            <h2>Presets</h2>
-            <div class="preset-row">
-              <input id="preset-name" type="text" placeholder="Preset name" autocomplete="off">
-              <button id="save-preset-btn" type="button">Save preset</button>
-            </div>
-            <ul id="presets-list"><!-- built from /api/presets --></ul>
-          </div>
-        </div>
-
-        <div id="capture-col">
-          <div id="preview-panel">
-            <button id="preview-btn" type="button">Stop live view</button>
-            <img id="preview" alt="live preview" hidden>
-          </div>
-          <button id="capture-btn" type="button">Capture</button>
         </div>
       </div>
 
