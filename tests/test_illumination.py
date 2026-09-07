@@ -84,6 +84,15 @@ def test_capture_records_illumination_and_turns_off(client):
     assert get_illumination()._last_applied["illum_enable"] is False
 
 
+def test_status_endpoint_mock_reports_no_panels(client):
+    # The mock backend has no configured panels, so the UI shows no "not connected"
+    # warning off-hardware.
+    res = client.get("/api/illumination/status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"backend": "mock", "configured": 0, "connected": 0, "panels": []}
+
+
 def test_illumination_off_endpoint(client):
     from app.illumination import get_illumination
 

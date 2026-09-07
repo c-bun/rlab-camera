@@ -337,10 +337,16 @@ function stopPolling() {
 
 // On load: build the controls + presets, then either resume an active run or start
 // the live view for a fresh setup.
+// Poll panel connectivity so the illumination warning stays current (a panel can drop
+// mid-session). Cheap: the status endpoint is a no-op on the mock backend.
+const ILLUM_STATUS_INTERVAL_MS = 5000;
+
 async function init() {
   await loadControls();
   await loadIllumination();
   await loadPresets();
+  refreshIllumStatus();
+  setInterval(refreshIllumStatus, ILLUM_STATUS_INTERVAL_MS);
   await loadGallery();
   updateEstimate();
   syncTimecourseUI();

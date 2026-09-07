@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 # Whole-broadcast timeout: connecting + writing every panel must finish within this.
 _WRITE_TIMEOUT_S = 10.0
+# Connectivity probe timeout for the status endpoint (kept short — the UI polls it).
+_STATUS_TIMEOUT_S = 6.0
 
 
 class BlePanels(IlluminationBackend):
@@ -67,6 +69,44 @@ class BlePanels(IlluminationBackend):
         payload = bytes((0, 0, 0, 0))
         with self._lock:
             self._broadcast(payload)
+
+    def status(self) -> dict[str, Any]:
+        configured = len(self._addresses)
+        try:
+            return self._submit(self._status_probe(), timeout=_STATUS_TIMEOUT_S)
+        except Exception:  # noqa: BLE001 (a probe failure must not break the status poll)
+            logger.exception("BLE illumination status probe failed")
+            return {
+                "backend": self.name,
+                "configured": configured,
+                "connected": 0,
+                "panels": [{"address": a, "connected": False} for a in self._addresses],
+            }
+
+    async def _status_probe(self) -> dict[str, Any]:
+        """Try to (re)connect each panel and report which are reachable.
+
+        Runs on the loop thread so all reads/writes of ``_clients`` stay single-threaded.
+        Doubles as a warm-up: a connection opened here is reused by the next apply().
+        """
+        connected = 0
+        panels = []
+        for address in self._addresses:
+            ok = False
+            try:
+                client = await self._ensure_connected(address)
+                ok = bool(client.is_connected)
+            except Exception:  # noqa: BLE001 (an unreachable panel is the case we report)
+                self._clients.pop(address, None)
+            panels.append({"address": address, "connected": ok})
+            if ok:
+                connected += 1
+        return {
+            "backend": self.name,
+            "configured": len(self._addresses),
+            "connected": connected,
+            "panels": panels,
+        }
 
     def _broadcast(self, payload: bytes) -> None:
         """Send one command to every panel; record it as the last-applied on success."""

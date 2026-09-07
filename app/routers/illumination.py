@@ -21,6 +21,13 @@ def get_controls() -> dict[str, Any]:
     }
 
 
+@router.get("/api/illumination/status")
+def get_status() -> dict[str, Any]:
+    # Panel connectivity, so the UI can warn when illumination is on but no panel is
+    # reachable. On the mock backend this reports zero configured panels (no warning).
+    return get_illumination().status()
+
+
 @router.post("/api/illumination/off")
 def turn_off() -> dict[str, str]:
     # Called by the client when live view is toggled off, so the panels don't stay lit.

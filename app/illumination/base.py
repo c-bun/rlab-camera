@@ -72,5 +72,14 @@ class IlluminationBackend(ABC):
     def off(self) -> None:
         """Turn every panel off. Safe to call repeatedly."""
 
+    def status(self) -> dict[str, Any]:
+        """Report panel connectivity so the UI can warn when panels are missing.
+
+        Returns ``{"backend", "configured", "connected", "panels": [...]}``. The default
+        (used by the mock backend) reports no configured panels, so the UI shows no
+        warning off-hardware. The BLE backend overrides this to probe real connections.
+        """
+        return {"backend": self.name, "configured": 0, "connected": 0, "panels": []}
+
     def close(self) -> None:  # noqa: B027 (optional hook; backends without resources need no override)
         """Release hardware resources. Safe to call multiple times."""

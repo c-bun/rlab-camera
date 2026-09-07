@@ -47,8 +47,36 @@ async function loadIllumination() {
         const picker = document.getElementById("illum_color");
         if (picker) picker.value = color;
       }
+      refreshIllumStatus();
     });
     row.appendChild(btn);
+  }
+
+  // Warn as soon as the master switch is toggled, not only on the next poll.
+  const enable = document.getElementById("illum_enable");
+  if (enable) enable.addEventListener("change", refreshIllumStatus);
+}
+
+// Show a warning when illumination is on but the configured panels aren't reachable.
+// Says nothing on the mock backend (configured === 0) or when all panels are connected.
+async function refreshIllumStatus() {
+  const el = document.getElementById("illum-status");
+  if (!el) return;
+  const enable = document.getElementById("illum_enable");
+  const on = enable ? enable.checked : false;
+  try {
+    const s = await (await fetch("/api/illumination/status")).json();
+    if (!on || s.configured === 0 || s.connected >= s.configured) {
+      el.hidden = true;
+      return;
+    }
+    el.textContent =
+      s.connected === 0
+        ? `⚠ Illumination is on, but no panel is connected (0 of ${s.configured}). Captures will have no light.`
+        : `⚠ Illumination is on, but only ${s.connected} of ${s.configured} panels are connected.`;
+    el.hidden = false;
+  } catch {
+    el.hidden = true; // don't block the UI if the status check itself fails
   }
 }
 
