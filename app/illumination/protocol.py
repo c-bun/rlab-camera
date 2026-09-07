@@ -13,7 +13,8 @@ from typing import Any
 from .controls import controls_by_name
 
 # Custom GATT service + characteristic the panel firmware advertises. A single writable
-# characteristic receives the command payload. Also defined in panel_firmware/code.py.
+# characteristic receives the command payload. Also defined in
+# panel_firmware/micropython/main.py (the CircuitPython panel_firmware/code.py is legacy).
 SERVICE_UUID = "5f1d0001-9d6f-4c1e-8b2a-2a5f3c9e7a10"
 COMMAND_CHAR_UUID = "5f1d0002-9d6f-4c1e-8b2a-2a5f3c9e7a10"
 

@@ -1,9 +1,23 @@
 # LED illumination panel firmware
 
-CircuitPython firmware turning a **Raspberry Pi Pico W + Waveshare Pico-RGB-Matrix-P3
+**MicroPython** firmware turning a **Raspberry Pi Pico W + Waveshare Pico-RGB-Matrix-P3
 64×32** panel into a Bluetooth-controlled lamp for `rlab-camera`. The Pi 4 (BLE central)
 sends colour + brightness; the panel renders it. One panel = one Pico W; run any number,
 each with its own entry in `RLAB_PANELS`.
+
+> **Why MicroPython (not CircuitPython):** CircuitPython on the Pico W can't act as a BLE
+> peripheral (its `_bleio` has no adapter for the on-board CYW43 radio). The MicroPython
+> `bluetooth`/`aioble` stack does. The old CircuitPython `code.py` is kept in this folder as
+> a rendering reference only — it is **not** the deployed firmware.
+
+## Files (in `micropython/`)
+
+| File | Role |
+|---|---|
+| `hub75.py` | HUB75 display driver: 1-bit-per-channel (8 hues), density-dithered brightness, flicker-free background refresh on core1. |
+| `main.py` | **The boot app.** `aioble` GATT peripheral; receives commands and drives `hub75`. |
+| `display_test.py` | Run-on-demand display self-test (hues + geometry), no BLE. |
+| `../tools/panel_probe.py` | Pi-side `bleak` bench driver to validate a panel without the app. |
 
 ## Command protocol
 
@@ -16,44 +30,82 @@ The panel advertises a custom GATT service with one writable command characteris
 
 Each write is a **4-byte payload**: `[R, G, B, brightness]`.
 
-- `R`, `G`, `B` — 0–255, the colour every lit LED shows.
+- `R`, `G`, `B` — 0–255. The firmware **thresholds each at 128** to a 1-bit-per-channel
+  hue, so the panel shows one of **8 hues** (R/G/B/C/M/Y/W + off). This is by design — the
+  panel is 1-bit colour; brightness stays continuous because it's density, not intensity.
 - `brightness` — 0–255, the **fraction of LEDs to light**. The panel ordered-dithers
-  (4×4 Bayer) to that density so lit LEDs spread evenly and the sample sees roughly uniform
-  illumination. `brightness == 0` clears the panel.
+  (4×4 Bayer) to that density so lit LEDs spread evenly. `brightness == 0` clears the panel.
 
 These UUIDs and this layout must stay in sync with `app/illumination/protocol.py` on the
-Pi (`SERVICE_UUID`, `COMMAND_CHAR_UUID`, `to_payload`).
+Pi (`SERVICE_UUID`, `COMMAND_CHAR_UUID`, `to_payload`) and the constants at the top of
+`micropython/main.py`.
 
 ## Wiring
 
-Same wiring as the lab's existing panel setup (Pico W GPIO → HUB75):
+Same wiring as the lab's existing panel setup (Pico W GPIO → HUB75); details and pinout are
+documented in `micropython/hub75.py`:
 
 - RGB pins: `GP2, GP3, GP4, GP5, GP8, GP9`
 - Address pins: `GP10, GP16, GP18, GP20`
 - Clock `GP11`, latch `GP12`, output-enable `GP13`
 
+> **Power:** the LED matrix must have its **own 5V supply** (the board's separate power
+> USB). Driving many LEDs from the Pico's USB alone browns the board out.
+
 ## Flashing
 
-1. Install **CircuitPython for the Raspberry Pi Pico W** (9.x or newer) — hold BOOTSEL,
-   drag the `.uf2` onto the `RPI-RP2` drive. The board reboots as the `CIRCUITPY` drive.
-2. Copy the **`adafruit_ble`** library folder from the matching
-   [Adafruit CircuitPython bundle](https://circuitpython.org/libraries) into
-   `CIRCUITPY/lib/`. (`rgbmatrix`, `displayio`, `framebufferio` are built into the Pico W
-   firmware — no library needed.)
-3. Copy `code.py` from this folder to the root of `CIRCUITPY`. It runs on boot.
-4. To run more than one panel, edit `PANEL_NAME` in `code.py` so each advertises a
-   distinct name (e.g. `rlab-panel-a`, `rlab-panel-b`).
+The dev Mac has no USB-A, so panels are flashed via the Pi over SSH; `mpremote` lives in
+`~/mpremote-venv/` on the Pi and the board enumerates as `/dev/ttyACM0`.
 
-## Registering panels on the Pi
+1. **Install MicroPython for the Pico W** — hold BOOTSEL, drag the Pico **W** `.uf2`
+   (from micropython.org, must be the CYW43/W build so BLE works) onto the `RPI-RP2` drive.
+   The board reboots running MicroPython (no USB drive — unlike CircuitPython).
+2. **Put `aioble` on the board.** It's *not* frozen into the stock image, and the panel
+   can't reach the IT-locked lab WiFi for `mpremote mip`, so copy the package from
+   [micropython-lib](https://github.com/micropython/micropython-lib) — fetch it **on the
+   Pi** (which has internet) and push the `aioble/` package directory to the board:
+   ```bash
+   mpremote connect /dev/ttyACM0 fs cp -r aioble :      # aioble/ from micropython-lib
+   ```
+   (`bluetooth` and `uasyncio` are built into the MicroPython firmware.)
+3. **Copy the firmware** and reset:
+   ```bash
+   mpremote connect /dev/ttyACM0 fs cp micropython/hub75.py :hub75.py
+   mpremote connect /dev/ttyACM0 fs cp micropython/main.py :main.py
+   mpremote connect /dev/ttyACM0 reset      # main.py runs on boot; watch REPL for "advertising"
+   ```
+4. To run more than one panel, edit `_PANEL_NAME` at the top of `main.py` so each advertises
+   a distinct name (e.g. `rlab-panel-a`, `rlab-panel-b`).
 
-Find each panel's advertised name or BLE address and list them in `RLAB_PANELS`
-(comma-separated) in `deploy/rlab-camera.service`, then set `ILLUMINATION_BACKEND=ble`.
-Discover addresses on the Pi with:
+To check the display alone (no BLE), push and run `display_test.py`:
+`mpremote connect /dev/ttyACM0 run micropython/display_test.py`.
+
+## Bench-testing a panel (no systemd needed)
+
+With the firmware flashed, drive the panel directly from the Pi using the same 4-byte
+encoding the app uses — this confirms BLE + rendering before wiring it into the service:
+
+```bash
+cd ~/rlab-camera
+.venv/bin/python panel_firmware/tools/panel_probe.py            # scans for "rlab-panel"
+.venv/bin/python panel_firmware/tools/panel_probe.py AA:BB:CC:DD:EE:FF   # or by address
+```
+
+It cycles white/blue/red/green then off; watch the panel (and the board's REPL). Passing
+here means `app/illumination/ble_backend.py` will connect and drive it unchanged.
+
+## Registering panels on the Pi (wire into the app)
+
+List each panel's advertised name or BLE address in `RLAB_PANELS` (comma-separated) in
+`deploy/rlab-camera.service`, and set `ILLUMINATION_BACKEND=ble`. bleak connects by either
+the advertised name (`rlab-panel`) or the address; the address is more reliable. Discover
+addresses on the Pi with:
 
 ```bash
 bluetoothctl
 scan on        # watch for "rlab-panel…", note the address
 ```
 
-bleak on the Pi can connect by either the advertised name or the address; the address is
-more reliable. See `deploy/README.md` for the full deploy flow.
+Changing the unit needs a reinstall + restart (`sudo cp deploy/rlab-camera.service
+/etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart
+rlab-camera`). See `deploy/README.md` for the full deploy flow.
