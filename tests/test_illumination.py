@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.camera.base import CaptureResult
 from app.illumination.mock import MockPanels
 from app.illumination.protocol import extract, to_payload
 
@@ -25,6 +26,72 @@ def test_mock_off_clears_state():
     panels.apply({"illum_enable": True, "illum_color": "#00ff00", "illum_brightness": 50})
     panels.off()
     assert panels._last_applied["illum_enable"] is False
+
+
+def test_mock_apply_accepts_confirm_kwarg():
+    # The capture path passes confirm=True; the mock has no hardware to wait on, so it
+    # must accept and ignore it (returning the same coerced state as the fast path).
+    panels = MockPanels()
+    settings = {"illum_enable": True, "illum_color": "#00ff00", "illum_brightness": 50}
+    assert panels.apply(settings, confirm=True) == panels.apply(settings)
+
+
+class _FakeIllum:
+    """Records the on/off/confirm behaviour perform_capture drives."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.on = False
+        self.confirm: bool | None = None
+
+    def apply(self, settings, *, confirm=False):
+        self.on = True
+        self.confirm = confirm
+        self.events.append("apply")
+        return extract(settings)
+
+    def off(self):
+        self.on = False
+        self.events.append("off")
+
+
+class _FakeCamera:
+    name = "fake"
+
+    def __init__(self, illum: _FakeIllum) -> None:
+        self._illum = illum
+        self.on_at_capture: bool | None = None
+
+    def capture(self, settings, dest):
+        # Record whether illumination was on at the moment the frame is taken.
+        self.on_at_capture = self._illum.on
+        self._illum.events.append("capture")
+        return CaptureResult(
+            path=dest, width=4, height=4, image_format="tiff", applied_settings=dict(settings)
+        )
+
+
+def test_perform_capture_confirms_illumination_then_offs_after(monkeypatch):
+    from app import capture_service
+
+    illum = _FakeIllum()
+    cam = _FakeCamera(illum)
+    monkeypatch.setattr(capture_service, "get_illumination", lambda: illum)
+    monkeypatch.setattr(capture_service, "get_camera", lambda: cam)
+    monkeypatch.setattr(capture_service.db, "insert_image", lambda **kw: 1)
+    monkeypatch.setattr(capture_service.db, "get_image", lambda _id: {"id": 1})
+
+    capture_service.perform_capture(
+        {"illum_enable": True, "illum_color": "#00ff00", "illum_brightness": 50}
+    )
+
+    # The capture path asks the panel to confirm it is on (render ack)...
+    assert illum.confirm is True
+    # ...the panel was on when the frame was taken...
+    assert cam.on_at_capture is True
+    # ...and it is turned off only after the capture, in strict order.
+    assert illum.on is False
+    assert illum.events == ["apply", "capture", "off"]
 
 
 def test_extract_defaults_and_clamps():

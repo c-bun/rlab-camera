@@ -12,11 +12,15 @@ from typing import Any
 
 from .controls import controls_by_name
 
-# Custom GATT service + characteristic the panel firmware advertises. A single writable
-# characteristic receives the command payload. Also defined in
-# panel_firmware/micropython/main.py (the CircuitPython panel_firmware/code.py is legacy).
+# Custom GATT service + characteristics the panel firmware advertises. A writable command
+# characteristic receives the 4-byte payload; a notify-only status characteristic sends a
+# one-byte render acknowledgement (1 = lit, 0 = cleared) back to the Pi after the panel
+# renders each command, so the capture path can wait for the panel to actually be on before
+# integrating a frame. Also defined in panel_firmware/micropython/main.py (the CircuitPython
+# panel_firmware/code.py is legacy). Keep all three UUIDs in sync with the firmware.
 SERVICE_UUID = "5f1d0001-9d6f-4c1e-8b2a-2a5f3c9e7a10"
 COMMAND_CHAR_UUID = "5f1d0002-9d6f-4c1e-8b2a-2a5f3c9e7a10"
+STATUS_CHAR_UUID = "5f1d0003-9d6f-4c1e-8b2a-2a5f3c9e7a10"
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:

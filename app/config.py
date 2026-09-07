@@ -16,6 +16,11 @@ DB_PATH = Path(os.environ.get("RLAB_DB_PATH", str(DATA_DIR / "rlab.db"))).resolv
 # on the Pi set RLAB_PANELS so the "auto" illumination backend picks the Bluetooth panels.
 PANELS = [p.strip() for p in os.environ.get("RLAB_PANELS", "").split(",") if p.strip()]
 
+# Max seconds the capture path waits for a panel's "I'm on" render ack before proceeding
+# anyway (a dark-frame safety net, not the normal path — the panel usually acks in well
+# under this). Tunable so a slow link can be given more slack.
+ILLUM_ACK_TIMEOUT_S = float(os.environ.get("RLAB_ILLUM_ACK_TIMEOUT_S", "1.0"))
+
 
 def ensure_dirs() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)

@@ -22,7 +22,9 @@ class MockPanels(IlluminationBackend):
     def get_controls(self) -> list[IlluminationControl]:
         return list(PANEL_CONTROLS)
 
-    def apply(self, settings: dict[str, Any]) -> dict[str, Any]:
+    def apply(self, settings: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
+        # No hardware: `confirm` is a no-op (there is nothing to wait for), so dev/CI stays
+        # fast and the capture flow can be exercised end to end without panels.
         applied = extract(settings)
         self._last_applied = applied
         return applied

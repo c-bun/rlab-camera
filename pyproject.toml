@@ -7,6 +7,10 @@ requires-python = ">=3.11"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# On-device panel firmware is MicroPython/CircuitPython (uasyncio, @micropython.native,
+# board-specific modules) — it isn't CPython and can't lint as such. The Pi-side CPython
+# helpers under panel_firmware/tools/ stay linted.
+extend-exclude = ["panel_firmware/micropython", "panel_firmware/code.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

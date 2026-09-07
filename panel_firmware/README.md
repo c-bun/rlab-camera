@@ -27,8 +27,9 @@ The panel advertises a custom GATT service with one writable command characteris
 |---|---|
 | Service | `5f1d0001-9d6f-4c1e-8b2a-2a5f3c9e7a10` |
 | Command characteristic (write / write-no-response) | `5f1d0002-9d6f-4c1e-8b2a-2a5f3c9e7a10` |
+| Status characteristic (notify) | `5f1d0003-9d6f-4c1e-8b2a-2a5f3c9e7a10` |
 
-Each write is a **4-byte payload**: `[R, G, B, brightness]`.
+Each write to the command characteristic is a **4-byte payload**: `[R, G, B, brightness]`.
 
 - `R`, `G`, `B` — 0–255. The firmware **thresholds each at 128** to a 1-bit-per-channel
   hue, so the panel shows one of **8 hues** (R/G/B/C/M/Y/W + off). This is by design — the
@@ -36,9 +37,14 @@ Each write is a **4-byte payload**: `[R, G, B, brightness]`.
 - `brightness` — 0–255, the **fraction of LEDs to light**. The panel ordered-dithers
   (4×4 Bayer) to that density so lit LEDs spread evenly. `brightness == 0` clears the panel.
 
+After it renders each command the panel **notifies a one-byte "I'm on" ack** on the status
+characteristic (`1` = lit, `0` = cleared). The Pi subscribes to it and, on the capture path,
+writes the command with response and waits for this ack before integrating a frame — so the
+panel is guaranteed on before a capture (live view stays fire-and-forget for speed).
+
 These UUIDs and this layout must stay in sync with `app/illumination/protocol.py` on the
-Pi (`SERVICE_UUID`, `COMMAND_CHAR_UUID`, `to_payload`) and the constants at the top of
-`micropython/main.py`.
+Pi (`SERVICE_UUID`, `COMMAND_CHAR_UUID`, `STATUS_CHAR_UUID`, `to_payload`) and the constants
+at the top of `micropython/main.py`.
 
 ## Wiring
 

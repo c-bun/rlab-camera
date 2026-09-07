@@ -35,9 +35,12 @@ def perform_capture(
     # embeds as ImageJ metadata) so an exported file carries when it was taken.
     settings = {**settings, "captured_at": now.isoformat()}
 
-    # Illumination is synced to the capture: light the panels just before the frame and
-    # turn them off after. During live view the preview loop keeps them lit separately.
-    applied_illum = illumination.apply(settings)
+    # Illumination is synced to the capture: light the panels and, with confirm=True, wait
+    # for them to confirm they are actually on (render ack) BEFORE integrating the frame —
+    # then turn them off only AFTER the capture returns (the finally runs even on error).
+    # This ordering (on → confirm rendered → capture → off) is what keeps every frame lit;
+    # during live view the preview loop keeps them lit separately (fire-and-forget).
+    applied_illum = illumination.apply(settings, confirm=True)
     try:
         result = camera.capture(settings, dest)
     finally:

@@ -58,7 +58,7 @@ class IlluminationBackend(ABC):
         """Return the illumination controls this backend supports, with ranges."""
 
     @abstractmethod
-    def apply(self, settings: dict[str, Any]) -> dict[str, Any]:
+    def apply(self, settings: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
         """Drive every panel from ``settings`` and return the state actually applied.
 
         ``settings`` is the same flat capture-settings dict used elsewhere; the
@@ -66,6 +66,12 @@ class IlluminationBackend(ABC):
         read out of it and any others ignored. When illumination is disabled the panels
         are turned off. The returned dict contains only the ``illum_*`` keys so the
         caller can persist exactly what the panels did.
+
+        ``confirm=True`` (the capture path) blocks until every connected panel confirms it
+        has rendered the command — a reliable write plus the panel's render ack, bounded by
+        a timeout — so a frame is never integrated before the panel is actually on. The
+        default (live view) is fire-and-forget for responsiveness. Backends without
+        hardware ignore ``confirm`` and return immediately.
         """
 
     @abstractmethod

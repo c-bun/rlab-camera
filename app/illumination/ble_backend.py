@@ -17,9 +17,10 @@ import logging
 import threading
 from typing import Any
 
+from .. import config
 from .base import IlluminationBackend, IlluminationControl
 from .controls import PANEL_CONTROLS
-from .protocol import COMMAND_CHAR_UUID, extract, to_payload
+from .protocol import COMMAND_CHAR_UUID, STATUS_CHAR_UUID, extract, to_payload
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,9 @@ class BlePanels(IlluminationBackend):
         self._BleakClient = BleakClient
         self._addresses = list(addresses)
         self._clients: dict[str, Any] = {}
+        # Per-panel "I'm on" render-ack events, set by the panel's status notification and
+        # awaited by the confirmed (capture) path. Created/owned on the loop thread.
+        self._acks: dict[str, asyncio.Event] = {}
         # Skip re-sending an identical command (the preview loop calls apply() ~2×/sec).
         self._last_payload: bytes | None = None
         self._lock = threading.Lock()
@@ -57,11 +61,16 @@ class BlePanels(IlluminationBackend):
     def get_controls(self) -> list[IlluminationControl]:
         return list(PANEL_CONTROLS)
 
-    def apply(self, settings: dict[str, Any]) -> dict[str, Any]:
+    def apply(self, settings: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
         applied = extract(settings)
         payload = to_payload(applied)
         with self._lock:
-            if payload != self._last_payload:
+            if confirm:
+                # Capture path: write reliably and (when turning panels ON) wait for each
+                # panel's render ack, so the frame is never taken before the panel is lit.
+                self._broadcast_confirmed(payload, wait_ack=applied["illum_enable"])
+            elif payload != self._last_payload:
+                # Live view: fire-and-forget, and skip an unchanged command.
                 self._broadcast(payload)
         return applied
 
@@ -118,6 +127,24 @@ class BlePanels(IlluminationBackend):
             # Force a fresh attempt (and reconnect) on the next call.
             self._last_payload = None
 
+    def _broadcast_confirmed(self, payload: bytes, *, wait_ack: bool) -> None:
+        """Send one command with confirmed delivery; wait for the panels' render ack.
+
+        Used by the capture path. When ``wait_ack`` (panels turning ON) it blocks until
+        every connected panel notifies "I'm on", up to ``ILLUM_ACK_TIMEOUT_S`` — then the
+        caller can integrate a frame knowing the panel is lit. The outer timeout allows the
+        internal ack wait plus connect/write time.
+        """
+        try:
+            self._submit(
+                self._write_all_confirmed(payload, wait_ack=wait_ack),
+                timeout=_WRITE_TIMEOUT_S + config.ILLUM_ACK_TIMEOUT_S,
+            )
+            self._last_payload = payload
+        except Exception:  # noqa: BLE001 (a panel error must not break a capture)
+            logger.exception("BLE illumination confirmed write failed")
+            self._last_payload = None
+
     async def _ensure_connected(self, address: str) -> Any:
         client = self._clients.get(address)
         if client is not None and client.is_connected:
@@ -125,6 +152,21 @@ class BlePanels(IlluminationBackend):
         client = self._BleakClient(address)
         await client.connect()
         self._clients[address] = client
+        # Subscribe to the panel's status characteristic so its "I'm on" render acks land
+        # in this address's ack event (created here, on the loop thread). Bind the address
+        # via a closure. A panel that doesn't expose the status char (older firmware) just
+        # never acks — the confirmed path then falls back to its timeout.
+        ack = self._acks.get(address)
+        if ack is None:
+            ack = asyncio.Event()
+            self._acks[address] = ack
+        try:
+            await client.start_notify(
+                STATUS_CHAR_UUID,
+                lambda _char, data, ev=ack: ev.set() if data and data[0] == 1 else None,
+            )
+        except Exception:  # noqa: BLE001 (no status char / already subscribed — non-fatal)
+            logger.warning("BLE panel %s: could not subscribe to status notifications", address)
         return client
 
     async def _write_all(self, payload: bytes) -> None:
@@ -135,6 +177,45 @@ class BlePanels(IlluminationBackend):
             except Exception:  # noqa: BLE001 (one bad panel shouldn't stop the others)
                 logger.exception("BLE write to panel %s failed", address)
                 self._clients.pop(address, None)  # drop so the next call reconnects
+
+    async def _write_all_confirmed(self, payload: bytes, *, wait_ack: bool) -> None:
+        """Write ``payload`` to every panel with response, then await their render acks.
+
+        Each panel's ack event is cleared before its write so a stale notification can't
+        satisfy the wait; the panel sets it again once it renders. Only panels that
+        accepted the write are awaited, and only when ``wait_ack``. A timeout is not fatal:
+        we log and return so the capture still proceeds (the old behaviour) rather than
+        hanging on an unresponsive panel.
+        """
+        waiters: list[Any] = []
+        for address in self._addresses:
+            try:
+                client = await self._ensure_connected(address)
+            except Exception:  # noqa: BLE001
+                logger.exception("BLE connect to panel %s failed", address)
+                self._clients.pop(address, None)
+                continue
+            ack = self._acks.get(address)
+            if ack is not None:
+                ack.clear()
+            try:
+                await client.write_gatt_char(COMMAND_CHAR_UUID, payload, response=True)
+            except Exception:  # noqa: BLE001 (one bad panel shouldn't stop the others)
+                logger.exception("BLE confirmed write to panel %s failed", address)
+                self._clients.pop(address, None)
+                continue
+            if wait_ack and ack is not None:
+                waiters.append(ack.wait())
+        if waiters:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*waiters), timeout=config.ILLUM_ACK_TIMEOUT_S
+                )
+            except TimeoutError:
+                logger.warning(
+                    "illumination render ack timed out after %.1fs; capturing anyway",
+                    config.ILLUM_ACK_TIMEOUT_S,
+                )
 
     def close(self) -> None:
         loop = getattr(self, "_loop", None)
