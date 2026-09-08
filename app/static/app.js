@@ -222,6 +222,16 @@ async function startRun() {
   const btn = $("capture-btn");
   btn.disabled = true;
   status.textContent = "Starting run…";
+  // Stop live view and turn the panels off BEFORE creating the run. The run's first frame
+  // fires immediately server-side and lights the panels itself (synced per-frame), so an
+  // off() sent *after* creation would race that frame and leave it half-lit. Awaiting the
+  // off() here closes that gap; the run handles the panels from frame 0 on.
+  stopPreview();
+  try {
+    await fetch("/api/illumination/off", { method: "POST" });
+  } catch {
+    /* best-effort: the run's per-frame sync drives the panels regardless */
+  }
   try {
     const res = await fetch("/api/experiments", {
       method: "POST",
@@ -261,11 +271,11 @@ async function stopRun() {
 
 function enterRun(exp) {
   currentExpId = exp.id;
-  // The run drives the camera on its own cadence; live view would fight it. Panels are
-  // synced per-frame by perform_capture, so they stay dark between frames — turn them off
-  // now (they were lit by live view).
+  // The run drives the camera on its own cadence; live view would fight it, so stop it.
+  // Panels are synced per-frame by perform_capture. We do NOT turn them off here: startRun
+  // already did that before creating the run (turning them off after creation would race
+  // the immediate first frame), and on resume the run owns the panels frame-to-frame.
   stopPreview();
-  illuminationOff();
   // Keep timecourse mode selected so ending the run returns to the run-setup fields.
   $("timecourse-toggle").checked = true;
   syncTimecourseUI();
