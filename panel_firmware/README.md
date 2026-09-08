@@ -58,7 +58,37 @@ documented in `micropython/hub75.py`:
 > **Power:** the LED matrix must have its **own 5V supply** (the board's separate power
 > USB). Driving many LEDs from the Pico's USB alone browns the board out.
 
-## Flashing
+## Adding a panel: the one-shot script (recommended)
+
+`tools/provision_panel.sh` does the whole bring-up end to end — run it **on the Pi**, over
+SSH, with **one** board plugged into a Pi USB port **directly** (not a hub) and the LED
+matrix on its own 5V supply:
+
+```bash
+cd ~/rlab-camera
+sudo panel_firmware/tools/provision_panel.sh              # advertised name "rlab-panel"
+sudo panel_firmware/tools/provision_panel.sh rlab-panel-b # or give it a distinct name
+```
+
+It handles a board arriving in **any** state — blank RP2 bootloader, CircuitPython (the old
+`code.py`), or already-MicroPython — and: installs the MicroPython Pico W firmware, installs
+`aioble`, pushes `hub75.py` + `main.py` (rewriting `_PANEL_NAME` to the name you gave), reads
+the board's **BLE address off the board itself over serial** (a BLE scan is the fallback),
+resets it, drives the full colour sequence with `panel_probe.py` to prove it renders, then —
+after a confirmation prompt — appends the address to `RLAB_PANELS` in both the installed unit
+and `deploy/rlab-camera.service` and restarts the service. It is idempotent: re-running on an
+already-provisioned board is safe.
+
+`sudo` is needed only to mount the `RPI-RP2` bootloader volume and restart the service. If
+the board can't auto-enter the bootloader (e.g. unknown firmware), the script pauses and
+tells you to hold **BOOTSET**, tap **RUN**. A mid-run serial drop is almost always a
+brownout — see **Power** above. A board already running MicroPython is kept as-is (blank or
+CircuitPython boards get the UF2); pass `FORCE_REFLASH=1` to reflash it anyway, or override
+the UF2 with `MICROPYTHON_UF2_URL=… sudo -E …`.
+
+The manual steps below are the equivalent, kept as reference and fallback.
+
+## Flashing (manual)
 
 The dev Mac has no USB-A, so panels are flashed via the Pi over SSH; `mpremote` lives in
 `~/mpremote-venv/` on the Pi and the board enumerates as `/dev/ttyACM0`.
@@ -101,6 +131,9 @@ It cycles white/blue/red/green then off; watch the panel (and the board's REPL).
 here means `app/illumination/ble_backend.py` will connect and drive it unchanged.
 
 ## Registering panels on the Pi (wire into the app)
+
+> `provision_panel.sh` (above) does this step for you — it appends the discovered address to
+> `RLAB_PANELS` and restarts the service. The following is the manual equivalent.
 
 List each panel's advertised name or BLE address in `RLAB_PANELS` (comma-separated) in
 `deploy/rlab-camera.service`, and set `ILLUMINATION_BACKEND=ble`. bleak connects by either
