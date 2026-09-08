@@ -30,5 +30,7 @@ def test_mock_capture_clamps_and_records_settings(tmp_path):
         dest,
     )
     assert dest.exists()
-    assert (result.width, result.height) == (1332, 990)
+    # Raw capture halves each dimension: the 1332x990 readout -> a 666x495 channel stack.
+    assert (result.width, result.height) == (666, 495)
     assert result.applied_settings["ExposureTime"] >= 100
+    assert result.applied_settings["raw_cfa"] == "RGGB"

@@ -1,8 +1,10 @@
 """Write a TIFF whose capture settings are readable in ImageJ/Fiji.
 
-Both camera backends save TIFFs through `write_imagej_tiff` so the embedded metadata
-is identical. picamera2 is *not* imported here — callers hand us a plain numpy array,
-so this module imports fine on macOS for the mock backend and tests.
+Both camera backends save raw captures as multi-channel stacks via
+`write_imagej_channel_stack`; `write_imagej_tiff` writes a single plane and remains for
+callers that need it. The embedded metadata is identical either way. picamera2 is *not*
+imported here — callers hand us a plain numpy array, so this module imports fine on macOS
+for the mock backend and tests.
 
 ImageJ reads acquisition metadata from the "Info" property, which tifffile stores in
 the TIFF ImageDescription tag when `imagej=True`. In ImageJ the string shows up under
@@ -43,4 +45,23 @@ def write_imagej_tiff(dest: Path, array: np.ndarray, info: dict[str, Any]) -> No
         np.asarray(array),
         imagej=True,
         metadata={"Info": build_info_string(info)},
+    )
+
+
+def write_imagej_channel_stack(dest: Path, stack: np.ndarray, info: dict[str, Any]) -> None:
+    """Save a ``(C, Y, X)`` array as an ImageJ composite multi-channel stack.
+
+    Used for raw captures: the Bayer R/G/B channels are stored as separate channels so
+    ImageJ opens the file as a composite stack rather than an RGB image. `info` rides along
+    in the ImageJ Info property exactly as for single-plane TIFFs.
+    """
+    stack = np.asarray(stack)
+    if stack.ndim != 3:
+        raise ValueError(f"expected a (C, Y, X) stack, got shape {stack.shape}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tifffile.imwrite(
+        str(dest),
+        stack,
+        imagej=True,
+        metadata={"axes": "CYX", "mode": "composite", "Info": build_info_string(info)},
     )

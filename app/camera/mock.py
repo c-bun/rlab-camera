@@ -16,11 +16,19 @@ from PIL import Image, ImageDraw
 
 from .base import CameraBackend, CameraControl, CaptureResult
 from .controls import FIXED_WHITE_BALANCE, MANUAL_CONTROLS
-from .tiff import write_imagej_tiff
+from .raw import bayer_to_channels
+from .tiff import write_imagej_channel_stack
 
 # Small fixed size for the live view, independent of the `resolution` control, so
 # preview stays cheap even when captures are configured for full sensor resolution.
 _PREVIEW_SIZE = (1014, 760)
+
+# CFA the mock pretends its sensor uses (the real IMX477 reports its own via picamera2).
+_MOCK_CFA = "RGGB"
+# 12-bit sensor: raw values live in [0, 4095] inside a uint16 container.
+_MOCK_BIT_DEPTH = 12
+_MOCK_WHITE_LEVEL = (1 << _MOCK_BIT_DEPTH) - 1
+_MOCK_BLACK_LEVEL = 0
 
 
 class MockCamera(CameraBackend):
@@ -31,14 +39,29 @@ class MockCamera(CameraBackend):
 
     def capture(self, settings: dict[str, Any], dest: Path) -> CaptureResult:
         applied = self._apply(settings)
-        width, height = _parse_resolution(applied.get("resolution", "1332x990"))
+        read_w, read_h = _parse_resolution(applied.get("resolution", "1332x990"))
         image_format = "tiff"
 
-        img = self._render(width, height, image_format, applied)
+        # Synthesize a raw Bayer mosaic at the sensor readout size, then split it into an
+        # R/G/B channel stack with the same no-interpolation path the real backend uses.
+        mosaic = self._synthesize_mosaic(read_w, read_h)
+        stack = bayer_to_channels(mosaic, _MOCK_CFA)
+        height, width = stack.shape[1], stack.shape[2]
+
+        applied = {
+            **applied,
+            "resolution": f"{read_w}x{read_h}",
+            "image_format": image_format,
+            "raw_cfa": _MOCK_CFA,
+            "raw_bit_depth": _MOCK_BIT_DEPTH,
+            "raw_black_level": _MOCK_BLACK_LEVEL,
+            "raw_white_level": _MOCK_WHITE_LEVEL,
+            "channels": "R,G,B (G = mean of both Bayer greens)",
+        }
 
         dest.parent.mkdir(parents=True, exist_ok=True)
-        # Lossless + capture settings embedded as ImageJ-readable metadata.
-        write_imagej_tiff(dest, np.asarray(img), applied)
+        # 16-bit composite stack of raw values, capture settings embedded as ImageJ metadata.
+        write_imagej_channel_stack(dest, stack, applied)
 
         return CaptureResult(
             path=dest,
@@ -47,6 +70,25 @@ class MockCamera(CameraBackend):
             image_format=image_format,
             applied_settings=applied,
         )
+
+    def _synthesize_mosaic(self, width: int, height: int) -> np.ndarray:
+        """A synthetic 12-bit Bayer mosaic; R/G/B sites get distinct gradients so the
+        split channels visibly differ (successive frames differ via a small time jitter)."""
+        yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+        gx = xx / max(width - 1, 1)
+        gy = yy / max(height - 1, 1)
+        jitter = (datetime.now(UTC).microsecond % 256) / 255.0
+
+        mosaic = np.zeros((height, width), dtype=np.uint16)
+        # RGGB tile: R at (0,0), G at (0,1)&(1,0), B at (1,1).
+        white = _MOCK_WHITE_LEVEL
+        mosaic[0::2, 0::2] = (gx[0::2, 0::2] * white).astype(np.uint16)  # red
+        mosaic[0::2, 1::2] = (gy[0::2, 1::2] * white).astype(np.uint16)  # green
+        mosaic[1::2, 0::2] = (gy[1::2, 0::2] * white).astype(np.uint16)  # green
+        mosaic[1::2, 1::2] = (
+            ((gx + gy) * 0.5 + jitter * 0.1).clip(0, 1)[1::2, 1::2] * white
+        ).astype(np.uint16)  # blue
+        return mosaic
 
     def preview(self, settings: dict[str, Any]) -> bytes:
         applied = self._apply(settings)
