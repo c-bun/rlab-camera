@@ -210,6 +210,18 @@ async function loadPresets() {
     recall.textContent = "Recall";
     recall.addEventListener("click", () => {
       applySettings(p.settings);
+      // Interval/duration ride along in the same settings dict but live outside
+      // #controls-form/#illumination-form, so applySettings() ignores them — restore
+      // them here when both the preset and this page have them.
+      const interval = document.getElementById("exp-interval");
+      const duration = document.getElementById("exp-duration");
+      if (interval && p.settings.interval_seconds != null) {
+        interval.value = p.settings.interval_seconds / 60;
+      }
+      if (duration && p.settings.duration_seconds != null) {
+        duration.value = p.settings.duration_seconds / 3600;
+      }
+      if (typeof updateEstimate === "function") updateEstimate();
       document.getElementById("status").textContent = `Loaded preset “${p.name}”`;
     });
 

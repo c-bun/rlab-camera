@@ -97,7 +97,7 @@ def test_perform_capture_confirms_illumination_then_offs_after(monkeypatch):
 def test_extract_defaults_and_clamps():
     # Missing keys fall back to control defaults.
     assert extract({}) == {
-        "illum_enable": True,
+        "illum_enable": False,
         "illum_color": "#ffffff",
         "illum_brightness": 100,
     }

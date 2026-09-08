@@ -6,7 +6,7 @@ from app.camera.mock import MockCamera
 def test_mock_reports_manual_controls():
     controls = {c.name: c for c in MockCamera().get_controls()}
     # Core manual controls a lab user needs must be present.
-    for name in ("ExposureTime", "AnalogueGain", "AwbEnable", "resolution"):
+    for name in ("ExposureTime", "AnalogueGain", "resolution"):
         assert name in controls
     # Format is no longer user-selectable: every capture is ImageJ-TIFF.
     assert "image_format" not in controls

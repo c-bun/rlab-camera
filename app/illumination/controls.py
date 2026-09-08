@@ -24,7 +24,7 @@ PANEL_CONTROLS: list[IlluminationControl] = [
         "illum_enable",
         "Illumination",
         "bool",
-        default=True,
+        default=False,
         description="Master switch for the LED panels. When off, panels stay dark for "
         "captures and live view.",
     ),

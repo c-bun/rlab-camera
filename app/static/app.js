@@ -130,6 +130,18 @@ async function loadGallery() {
   }
 }
 
+// Interval/duration aren't part of #controls-form/#illumination-form (collectSettings()),
+// so pull them in separately for presets. Returns {} if the fields aren't on this page.
+function collectTimecourseFields() {
+  const interval = $("exp-interval");
+  const duration = $("exp-duration");
+  if (!interval || !duration) return {};
+  return {
+    interval_seconds: Number(interval.value) * 60,
+    duration_seconds: Number(duration.value) * 3600,
+  };
+}
+
 async function savePreset() {
   const input = $("preset-name");
   const status = $("status");
@@ -140,10 +152,11 @@ async function savePreset() {
     return;
   }
   try {
+    const settings = { ...collectSettings(), ...collectTimecourseFields() };
     const res = await fetch("/api/presets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, settings: collectSettings() }),
+      body: JSON.stringify({ name, settings }),
     });
     if (!res.ok) throw new Error(await res.text());
     input.value = "";
