@@ -154,6 +154,52 @@ def download(payload: dict[str, Any]) -> FileResponse:
     )
 
 
+def _unlink_image_files(row: dict[str, Any]) -> None:
+    for path in (config.IMAGES_DIR / row["filename"], config.THUMBS_DIR / f"{row['id']}.jpg"):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+@router.post("/delete")
+def delete(payload: dict[str, Any]) -> dict[str, int]:
+    """Permanently delete the selected captures and whole runs, including their
+    files on disk. Body: ``{"image_ids": [int], "experiment_ids": [int]}``. A
+    running experiment must be stopped first."""
+    image_ids = payload.get("image_ids") or []
+    experiment_ids = payload.get("experiment_ids") or []
+    if not isinstance(image_ids, list) or not isinstance(experiment_ids, list):
+        raise HTTPException(status_code=400, detail="image_ids and experiment_ids must be lists")
+
+    for eid in experiment_ids:
+        exp = db.get_experiment(int(eid))
+        if exp is not None and exp["status"] == "running":
+            raise HTTPException(
+                status_code=409, detail=f"run '{exp['name']}' is still active; stop it first"
+            )
+
+    deleted_experiments = 0
+    deleted_images = 0
+
+    for eid in experiment_ids:
+        exp = db.get_experiment(int(eid))
+        if exp is None:
+            continue
+        for row in db.delete_experiment(exp["id"]):
+            _unlink_image_files(row)
+            deleted_images += 1
+        deleted_experiments += 1
+
+    for iid in image_ids:
+        row = db.delete_image(int(iid))
+        if row is not None:
+            _unlink_image_files(row)
+            deleted_images += 1
+
+    return {"deleted_images": deleted_images, "deleted_experiments": deleted_experiments}
+
+
 # The gallery page itself (no /api prefix), served from its own router.
 page_router = APIRouter()
 

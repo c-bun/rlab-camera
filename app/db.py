@@ -133,6 +133,16 @@ def list_images_by_ids(ids: list[int]) -> list[dict[str, Any]]:
     return [_row_to_dict(r) for r in rows]
 
 
+def delete_image(image_id: int) -> dict[str, Any] | None:
+    """Delete one image row, returning the deleted row (for file cleanup) or None."""
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
+        if row is None:
+            return None
+        conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+    return _row_to_dict(row)
+
+
 def experiment_gallery_summaries() -> list[dict[str, Any]]:
     """One row per timecourse run that has captured frames: frame count and the id
     of its newest frame (used as the stack's cover thumbnail). Single aggregate
@@ -248,6 +258,18 @@ def set_experiment_status(experiment_id: int, status: str, *, ended_at: str | No
             "UPDATE experiments SET status = ?, ended_at = ? WHERE id = ?",
             (status, ended_at, experiment_id),
         )
+
+
+def delete_experiment(experiment_id: int) -> list[dict[str, Any]]:
+    """Delete an experiment and all of its frames, returning the deleted image rows
+    (for file cleanup)."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM images WHERE experiment_id = ? ORDER BY id DESC", (experiment_id,)
+        ).fetchall()
+        conn.execute("DELETE FROM images WHERE experiment_id = ?", (experiment_id,))
+        conn.execute("DELETE FROM experiments WHERE id = ?", (experiment_id,))
+    return [_row_to_dict(r) for r in rows]
 
 
 def count_experiment_images(experiment_id: int) -> int:

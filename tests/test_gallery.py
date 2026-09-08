@@ -89,3 +89,43 @@ def test_download_empty_selection_rejected(client):
     _seed(client)
     resp = client.post("/api/gallery/download", json={"image_ids": [], "experiment_ids": []})
     assert resp.status_code == 400
+
+
+def test_delete_image_removes_row_and_file(client):
+    from app import config, db
+
+    manual, exp_id, frames = _seed(client)
+    image = db.get_image(manual[0])
+    path = config.IMAGES_DIR / image["filename"]
+    assert path.exists()
+
+    resp = client.post("/api/gallery/delete", json={"image_ids": [manual[0]], "experiment_ids": []})
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted_images": 1, "deleted_experiments": 0}
+    assert db.get_image(manual[0]) is None
+    assert not path.exists()
+
+
+def test_delete_running_experiment_rejected(client):
+    manual, exp_id, frames = _seed(client)
+    resp = client.post("/api/gallery/delete", json={"image_ids": [], "experiment_ids": [exp_id]})
+    assert resp.status_code == 409
+    from app import db
+
+    assert db.get_experiment(exp_id) is not None
+
+
+def test_delete_stopped_experiment_removes_frames_and_files(client):
+    from app import config, db
+
+    manual, exp_id, frames = _seed(client)
+    db.set_experiment_status(exp_id, "stopped", ended_at=datetime.now(UTC).isoformat())
+    frame_paths = [config.IMAGES_DIR / db.get_image(fid)["filename"] for fid in frames]
+    assert all(p.exists() for p in frame_paths)
+
+    resp = client.post("/api/gallery/delete", json={"image_ids": [], "experiment_ids": [exp_id]})
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted_images": 2, "deleted_experiments": 1}
+    assert db.get_experiment(exp_id) is None
+    assert all(db.get_image(fid) is None for fid in frames)
+    assert all(not p.exists() for p in frame_paths)

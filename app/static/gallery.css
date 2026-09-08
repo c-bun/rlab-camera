@@ -17,6 +17,14 @@ main { grid-template-columns: 1fr; }
 #selected-count { opacity: 0.7; }
 #download-btn { margin-left: auto; }
 
+.btn-danger {
+  background: #d9483a;
+  color: #fff;
+  border: 1px solid #b8392d;
+}
+.btn-danger:hover:not(:disabled) { background: #c33f32; }
+.btn-danger:disabled { opacity: 0.5; }
+
 #gallery-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -37,21 +45,25 @@ main { grid-template-columns: 1fr; }
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
 }
 
-/* The "deck" look for a timecourse run: offset layers peek out behind the card. */
-.stack .card { position: relative; cursor: pointer; }
-.stack .card::before,
-.stack .card::after {
+/* The "deck" look for a timecourse run: offset, rotated layers fan out behind the
+   card so it reads as a stack of photos rather than a single tile. These live on
+   .tile, not .card — .card has overflow:hidden (app.css, for the thumbnail's
+   rounded corners) which would clip layers meant to peek out past its edges. */
+.stack { position: relative; z-index: 0; margin-right: 14px; margin-bottom: 14px; }
+.stack .card { cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); }
+.stack::before,
+.stack::after {
   content: "";
   position: absolute;
   inset: 0;
-  border: 1px solid #8883;
+  border: 1px solid #8886;
   border-radius: 6px;
   background: Canvas;
   z-index: -1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
-.stack .card::before { transform: translate(4px, 4px); }
-.stack .card::after { transform: translate(8px, 8px); }
-.stack { margin-right: 8px; margin-bottom: 8px; }
+.stack::before { transform: translate(5px, 6px) rotate(-2.5deg); }
+.stack::after { transform: translate(10px, 12px) rotate(3.5deg); z-index: -2; }
 
 .card .badge-count {
   display: inline-block;

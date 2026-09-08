@@ -8,6 +8,18 @@ const selectedRuns = new Set();
 let ungroupedIds = []; // image ids of ad-hoc captures (for "select all")
 let runIds = []; // experiment ids shown as stacks (for "select all")
 
+function formatTimestamp(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function thumbSrc(img) {
   // Browsers can't render TIFF inline — use the server JPEG thumbnail for those.
   const isTiff = img.image_format === "tiff" || img.image_format === "tif";
@@ -18,6 +30,7 @@ function updateToolbar() {
   const n = selectedImages.size + selectedRuns.size;
   document.getElementById("selected-count").textContent = `${n} selected`;
   document.getElementById("download-btn").disabled = n === 0;
+  document.getElementById("delete-btn").disabled = n === 0;
   const all = ungroupedIds.length + runIds.length;
   const selectAll = document.getElementById("select-all");
   selectAll.checked = all > 0 && n === all;
@@ -42,7 +55,7 @@ function captureTile(img) {
   card.innerHTML = `
     <img src="${thumbSrc(img)}" alt="capture ${img.id}" loading="lazy">
     <div class="info">
-      #${img.id} · ${img.width}×${img.height} · ${img.image_format}<br>
+      ${formatTimestamp(img.captured_at)} · ${img.width}×${img.height} · ${img.image_format}<br>
       <a href="/api/images/${img.id}/file?download=true">Download</a>
     </div>`;
 
@@ -71,7 +84,7 @@ function stackTile(exp) {
   card.innerHTML = `
     <img src="/api/images/${exp.cover_image_id}/thumbnail" alt="run ${exp.id}" loading="lazy">
     <div class="info">
-      <span class="run-name">${escapeHtml(exp.name)}</span>
+      <span class="run-name">🗂 ${escapeHtml(exp.name)}</span>
       ${exp.frames_captured} frames <span class="badge-count">${exp.status}</span>
     </div>`;
 
@@ -181,6 +194,44 @@ async function downloadSelected() {
   }
 }
 
+async function deleteSelected() {
+  const n = selectedImages.size + selectedRuns.size;
+  if (n === 0) return;
+  const parts = [];
+  if (selectedImages.size) parts.push(`${selectedImages.size} image(s)`);
+  if (selectedRuns.size) parts.push(`${selectedRuns.size} run(s) (all their frames)`);
+  const ok = confirm(`Permanently delete ${parts.join(" and ")}? This cannot be undone.`);
+  if (!ok) return;
+
+  const btn = document.getElementById("delete-btn");
+  const status = document.getElementById("status");
+  btn.disabled = true;
+  status.textContent = "Deleting…";
+  try {
+    const res = await fetch("/api/gallery/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_ids: [...selectedImages],
+        experiment_ids: [...selectedRuns],
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || res.statusText);
+    }
+    selectedImages.clear();
+    selectedRuns.clear();
+    status.textContent = "Deleted.";
+    await load();
+  } catch (err) {
+    status.textContent = "Delete failed: " + err.message;
+  } finally {
+    updateToolbar();
+  }
+}
+
 document.getElementById("select-all").addEventListener("change", (e) => selectAll(e.target.checked));
 document.getElementById("download-btn").addEventListener("click", downloadSelected);
+document.getElementById("delete-btn").addEventListener("click", deleteSelected);
 load();
