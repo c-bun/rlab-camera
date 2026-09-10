@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import CameraBackend, CameraControl, CaptureResult
-from .controls import FIXED_WHITE_BALANCE, MANUAL_CONTROLS
+from .controls import MANUAL_CONTROLS, controls_by_name
 from .tiff import write_imagej_tiff
 
 # Small fixed size for the live view, independent of the `resolution` control, so
@@ -29,8 +29,11 @@ _PREVIEW_SIZE = (1014, 760)
 _PICAMERA2_DIRECT = {
     "ExposureTime",
     "AnalogueGain",
+    "AwbEnable",
     "ExposureValue",
 }
+
+_AWB_OFF_VALUES = (False, "false", "False", "off", "0", 0)
 
 
 class Picamera2Camera(CameraBackend):
@@ -96,7 +99,6 @@ class Picamera2Camera(CameraBackend):
                 metadata = request.get_metadata()
                 applied = {
                     **settings,
-                    **FIXED_WHITE_BALANCE,
                     "resolution": f"{actual_w}x{actual_h}",
                     "image_format": image_format,
                     "_sensor_metadata": metadata,
@@ -145,17 +147,18 @@ class Picamera2Camera(CameraBackend):
         self._configured_size = size
 
     def _build_controls(self, settings: dict[str, Any]) -> dict[str, Any]:
+        defs = controls_by_name()
         controls: dict[str, Any] = {}
         for name in _PICAMERA2_DIRECT:
             if settings.get(name) is not None:
                 controls[name] = settings[name]
 
-        # AWB is fixed off with unity colour gains — see FIXED_WHITE_BALANCE.
-        controls["AwbEnable"] = False
-        controls["ColourGains"] = (
-            FIXED_WHITE_BALANCE["ColourGainRed"],
-            FIXED_WHITE_BALANCE["ColourGainBlue"],
-        )
+        # Manual colour gains as a (red, blue) tuple, only when AWB is disabled.
+        if settings.get("AwbEnable") in _AWB_OFF_VALUES:
+            controls["AwbEnable"] = False
+            red = settings.get("ColourGainRed", defs["ColourGainRed"].default)
+            blue = settings.get("ColourGainBlue", defs["ColourGainBlue"].default)
+            controls["ColourGains"] = (float(red), float(blue))
         return controls
 
     def close(self) -> None:

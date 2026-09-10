@@ -11,16 +11,7 @@ from .base import CameraControl
 
 # Resolutions the HQ camera commonly runs at (full sensor is 4056x3040).
 RESOLUTIONS = ["4056x3040", "2028x1520", "2028x1080", "1332x990"]
-
-# AWB is fixed off with unity colour gains (no automatic color correction on top of the
-# ISP's fixed pipeline) rather than user-adjustable — a scientific camera shouldn't be
-# auto-white-balancing. True raw sensor capture (bypassing the ISP entirely) is a bigger
-# feature, deferred; this is the interim "as close to sensor-native as the ISP allows" state.
-FIXED_WHITE_BALANCE: dict[str, object] = {
-    "AwbEnable": False,
-    "ColourGainRed": 1.0,
-    "ColourGainBlue": 1.0,
-}
+AWB_MODES = ["auto", "incandescent", "tungsten", "fluorescent", "indoor", "daylight", "cloudy"]
 
 MANUAL_CONTROLS: list[CameraControl] = [
     CameraControl(
@@ -53,6 +44,41 @@ MANUAL_CONTROLS: list[CameraControl] = [
         default=1.0,
         step=0.1,
         description="Sensor gain; ISO ≈ gain × 100.",
+    ),
+    CameraControl(
+        "AwbEnable",
+        "Auto white balance",
+        "bool",
+        default=True,
+        description="When off, use the manual red/blue colour gains below.",
+    ),
+    CameraControl(
+        "AwbMode",
+        "AWB mode",
+        "choice",
+        default="auto",
+        choices=AWB_MODES,
+        description="White-balance preset used when AWB is enabled.",
+    ),
+    CameraControl(
+        "ColourGainRed",
+        "Red colour gain",
+        "number",
+        min=0.0,
+        max=32.0,
+        default=2.0,
+        step=0.1,
+        description="Manual red gain (used when AWB is off).",
+    ),
+    CameraControl(
+        "ColourGainBlue",
+        "Blue colour gain",
+        "number",
+        min=0.0,
+        max=32.0,
+        default=2.0,
+        step=0.1,
+        description="Manual blue gain (used when AWB is off).",
     ),
     CameraControl(
         "ExposureValue",

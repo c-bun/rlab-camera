@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .base import CameraBackend, CameraControl, CaptureResult
-from .controls import FIXED_WHITE_BALANCE, MANUAL_CONTROLS
+from .controls import MANUAL_CONTROLS
 from .tiff import write_imagej_tiff
 
 # Small fixed size for the live view, independent of the `resolution` control, so
@@ -59,11 +59,8 @@ class MockCamera(CameraBackend):
     def _apply(self, settings: dict[str, Any]) -> dict[str, Any]:
         """Coerce/clamp requested values against the canonical control set."""
         return {
-            **{
-                ctrl.name: _coerce(ctrl, settings.get(ctrl.name, ctrl.default))
-                for ctrl in MANUAL_CONTROLS
-            },
-            **FIXED_WHITE_BALANCE,
+            ctrl.name: _coerce(ctrl, settings.get(ctrl.name, ctrl.default))
+            for ctrl in MANUAL_CONTROLS
         }
 
     def _render(
