@@ -55,6 +55,7 @@ function captureTile(img) {
   card.innerHTML = `
     <img src="${thumbSrc(img)}" alt="capture ${img.id}" loading="lazy">
     <div class="info">
+      ${img.acquisition ? `<span class="acq-tag">${escapeHtml(img.acquisition)} · t${img.timepoint ?? "?"}</span><br>` : ""}
       ${formatTimestamp(img.captured_at)} · ${img.width}×${img.height} · ${img.image_format}<br>
       <a href="/api/images/${img.id}/file?download=true">Download</a>
     </div>`;
@@ -78,6 +79,7 @@ function stackTile(exp) {
     updateToolbar();
   });
 
+  const multi = (exp.acquisition_names || []).length > 1;
   const card = document.createElement("div");
   card.className = "card";
   card.title = "Click to show frames";
@@ -86,11 +88,34 @@ function stackTile(exp) {
     <div class="info">
       <span class="run-name">🗂 ${escapeHtml(exp.name)}</span>
       ${exp.frames_captured} frames <span class="badge-count">${exp.status}</span>
+      ${multi ? `<br><span class="acq-list">${exp.acquisition_names.map(escapeHtml).join(" + ")}</span>` : ""}
     </div>`;
 
-  // Clicking the card body (not the checkbox) expands the run's frames inline.
+  // Clicking the card body (not the checkbox) expands the run's frames inline. A
+  // multi-acquisition run gets a filter row to show one acquisition's series at a time.
   let expander = null;
-  card.addEventListener("click", async () => {
+  async function showFrames(acquisition) {
+    const frames = expander.querySelector(".frames");
+    frames.innerHTML = `<p class="empty">Loading frames…</p>`;
+    for (const b of expander.querySelectorAll(".acq-filter button")) {
+      b.classList.toggle("active", b.dataset.acq === (acquisition ?? ""));
+    }
+    try {
+      const params = new URLSearchParams({ limit: "500" });
+      if (acquisition) params.set("acquisition", acquisition);
+      const res = await fetch(`/api/experiments/${exp.id}/images?${params}`);
+      const list = await res.json();
+      frames.innerHTML = "";
+      if (!list.length) {
+        frames.innerHTML = `<p class="empty">No frames.</p>`;
+        return;
+      }
+      for (const img of list) frames.appendChild(captureTile(img));
+    } catch (err) {
+      frames.innerHTML = `<p class="empty">Error: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+  card.addEventListener("click", () => {
     if (expander) {
       expander.remove();
       expander = null;
@@ -98,20 +123,24 @@ function stackTile(exp) {
     }
     expander = document.createElement("div");
     expander.className = "frames-expander";
-    expander.innerHTML = `<p class="empty">Loading frames…</p>`;
-    tile.after(expander);
-    try {
-      const res = await fetch(`/api/experiments/${exp.id}/images?limit=500`);
-      const frames = await res.json();
-      expander.innerHTML = "";
-      if (!frames.length) {
-        expander.innerHTML = `<p class="empty">No frames.</p>`;
-        return;
+    if (multi) {
+      const filter = document.createElement("div");
+      filter.className = "acq-filter";
+      for (const name of ["", ...exp.acquisition_names]) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.dataset.acq = name;
+        b.textContent = name || "All";
+        b.addEventListener("click", () => showFrames(name || null));
+        filter.appendChild(b);
       }
-      for (const img of frames) expander.appendChild(captureTile(img));
-    } catch (err) {
-      expander.innerHTML = `<p class="empty">Error: ${escapeHtml(err.message)}</p>`;
+      expander.appendChild(filter);
     }
+    const frames = document.createElement("div");
+    frames.className = "frames";
+    expander.appendChild(frames);
+    tile.after(expander);
+    showFrames(null);
   });
 
   tile.appendChild(check);

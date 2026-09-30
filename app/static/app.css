@@ -87,6 +87,21 @@ button {
 #progress-fill { height: 100%; width: 0; background: #4a90d9; transition: width 0.3s ease; }
 #run-progress { font-variant-numeric: tabular-nums; }
 #frame-estimate { margin: 0.25rem 0 1rem; }
+#timing-warn { margin: 0 0 1rem; }
+#run-acquisitions { margin: 0 0 0.75rem; padding-left: 1.2rem; font-variant-numeric: tabular-nums; }
+
+/* Acquisitions captured at every timepoint (timecourse setup). */
+#acquisitions-panel { margin-bottom: 0.5rem; }
+#acquisitions-panel h3 { font-size: 0.85rem; margin: 0 0 0.4rem; }
+#acquisitions-list { margin: 0; padding-left: 1.4rem; display: grid; gap: 0.4rem; }
+#acquisitions-list:empty { display: none; }
+.acq-item { display: grid; gap: 0.15rem; }
+.acq-head { display: flex; align-items: center; gap: 0.35rem; }
+.acq-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acq-head button { padding: 0.15rem 0.4rem; font-size: 0.7rem; font-weight: 500; }
+.acq-summary { font-size: 0.75rem; opacity: 0.7; }
+.acq-swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 2px; border: 1px solid #8886; vertical-align: -0.05em; }
+.acq-tag { font-size: 0.7rem; font-weight: 600; opacity: 0.85; }
 
 #illumination-panel { margin-top: 1.25rem; border-top: 1px solid #8883; padding-top: 0.75rem; }
 .field input[type="color"] { width: 100%; height: 2.2rem; padding: 0.15rem; }

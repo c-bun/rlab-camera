@@ -1,8 +1,10 @@
 """APScheduler wiring for timecourse runs.
 
 SQLite (the ``experiments`` table) is the source of truth; APScheduler's own
-jobstore stays in memory. A run is one interval job that takes a capture on each
-fire, bounded by an ``end_date`` derived from the run's duration, plus a one-shot
+jobstore stays in memory. A run is one interval job that, on each fire (a
+*timepoint*), captures every one of the run's acquisitions back to back in order —
+e.g. an illuminated frame for growth, then a long dark exposure for bioluminescence —
+bounded by an ``end_date`` derived from the run's duration, plus a one-shot
 job at that deadline that flips the run to ``complete`` (so it finalizes even if a
 capture errored). On startup ``reconcile_on_startup`` re-arms the single active run
 from the DB — this is what makes a run survive a service restart.
@@ -32,12 +34,38 @@ def make_scheduler() -> BackgroundScheduler:
     return BackgroundScheduler(timezone="UTC")
 
 
-def expected_total(interval_seconds: float, duration_seconds: float) -> int:
-    """Frames a run should produce: one at t0 plus one per whole interval within
+def expected_timepoints(interval_seconds: float, duration_seconds: float) -> int:
+    """Timepoints a run should reach: one at t0 plus one per whole interval within
     the duration."""
     if interval_seconds <= 0:
         return 0
     return math.floor(duration_seconds / interval_seconds) + 1
+
+
+def expected_total(
+    interval_seconds: float, duration_seconds: float, n_acquisitions: int = 1
+) -> int:
+    """Frames a run should produce: every acquisition at every timepoint."""
+    return expected_timepoints(interval_seconds, duration_seconds) * n_acquisitions
+
+
+# Rough per-acquisition cost beyond the exposure itself: sensor reconfigure, the panel
+# render-ack handshake, encoding and writing the TIFF.
+_ACQUISITION_OVERHEAD_SECONDS = 2.0
+
+
+def estimate_timepoint_seconds(acquisitions: list[dict[str, Any]]) -> float:
+    """Conservative wall-clock estimate for capturing every acquisition once.
+
+    Each capture costs ~3 exposures, not 1: a frame already in flight at the old
+    settings, the settling frame dropped after ``set_controls``, then the kept frame.
+    Acquisitions alternate controls every timepoint, so every capture pays this.
+    """
+    total = 0.0
+    for acq in acquisitions:
+        exposure_us = acq["settings"].get("ExposureTime") or 0
+        total += 3 * float(exposure_us) / 1e6 + _ACQUISITION_OVERHEAD_SECONDS
+    return total
 
 
 def _end_time(exp: dict[str, Any]) -> datetime:
@@ -49,18 +77,51 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _timepoint_index(exp: dict[str, Any]) -> int:
+    """Which timepoint the current fire is, from its offset against the run start."""
+    started = datetime.fromisoformat(exp["started_at"])
+    elapsed = (datetime.now(UTC) - started).total_seconds()
+    return max(0, round(elapsed / exp["interval_seconds"]))
+
+
 def _capture_job(experiment_id: int) -> None:
-    """One scheduled capture for a run, then finalize if the run is complete."""
+    """One timepoint for a run — every acquisition in order — then finalize if the run
+    is complete."""
     exp = db.get_experiment(experiment_id)
     if not exp or exp["status"] != "running":
         return
-    try:
-        perform_capture(exp["settings"], experiment_id=experiment_id)
-    except Exception:  # a single failed frame must not kill the run
-        log.exception("timecourse capture failed for experiment %s", experiment_id)
-        return
-    total = expected_total(exp["interval_seconds"], exp["duration_seconds"])
-    if db.count_experiment_images(experiment_id) >= total:
+    timepoint = _timepoint_index(exp)
+    for i, acq in enumerate(exp["acquisitions"]):
+        # Re-check between acquisitions so Stop (or delete) takes effect before a long
+        # exposure rather than after it. Only a stop counts: the finalize job may flip
+        # the run to "complete" while the final timepoint is still mid-sequence, and
+        # that timepoint should still get all of its acquisitions.
+        if i > 0:
+            current = db.get_experiment(experiment_id)
+            if current is None or current["status"] == "stopped":
+                return
+        try:
+            perform_capture(
+                acq["settings"],
+                experiment_id=experiment_id,
+                acquisition=acq["name"],
+                timepoint=timepoint,
+            )
+        except Exception:  # a single failed frame must not kill the run
+            log.exception(
+                "timecourse capture failed for experiment %s, acquisition %r",
+                experiment_id,
+                acq["name"],
+            )
+    total = expected_total(
+        exp["interval_seconds"], exp["duration_seconds"], len(exp["acquisitions"])
+    )
+    current = db.get_experiment(experiment_id)
+    if (
+        current
+        and current["status"] == "running"  # not stopped, or finalized, mid-timepoint
+        and db.count_experiment_images(experiment_id) >= total
+    ):
         db.set_experiment_status(experiment_id, "complete", ended_at=_now_iso())
 
 

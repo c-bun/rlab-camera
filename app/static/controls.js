@@ -221,6 +221,10 @@ async function loadPresets() {
       if (duration && p.settings.duration_seconds != null) {
         duration.value = p.settings.duration_seconds / 3600;
       }
+      // Likewise a timecourse preset's acquisition list (see app.js).
+      if (Array.isArray(p.settings.acquisitions) && typeof setAcquisitions === "function") {
+        setAcquisitions(p.settings.acquisitions);
+      }
       if (typeof updateEstimate === "function") updateEstimate();
       document.getElementById("status").textContent = `Loaded preset “${p.name}”`;
     });

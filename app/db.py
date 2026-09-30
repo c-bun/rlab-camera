@@ -1,9 +1,10 @@
 """SQLite persistence for captured-image metadata.
 
 Tables: `images` (every capture, optionally tagged with the `experiment_id` of the
-timecourse run that produced it), `presets` (named control-panel settings), and
-`experiments` (timecourse run definitions + status; SQLite is the source of truth
-the scheduler re-arms from on startup).
+timecourse run that produced it, plus which of the run's acquisitions and which
+timepoint it was), `presets` (named control-panel settings), and `experiments`
+(timecourse run definitions + status; SQLite is the source of truth the scheduler
+re-arms from on startup).
 """
 
 from __future__ import annotations
@@ -14,6 +15,10 @@ from typing import Any
 
 from .config import DB_PATH, ensure_dirs
 
+# Name given to the single acquisition of a run created without an explicit list
+# (and of runs recorded before multi-acquisition runs existed).
+DEFAULT_ACQUISITION = "default"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS images (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +28,9 @@ CREATE TABLE IF NOT EXISTS images (
     height        INTEGER NOT NULL,
     image_format  TEXT NOT NULL,
     settings_json TEXT NOT NULL,
-    experiment_id INTEGER
+    experiment_id INTEGER,
+    acquisition   TEXT,                  -- acquisition name within a timecourse run
+    timepoint     INTEGER                -- timepoint index within a timecourse run
 );
 
 CREATE TABLE IF NOT EXISTS presets (
@@ -34,20 +41,28 @@ CREATE TABLE IF NOT EXISTS presets (
 );
 
 CREATE TABLE IF NOT EXISTS experiments (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    name             TEXT NOT NULL,
-    notes            TEXT,
-    settings_json    TEXT NOT NULL,
-    interval_seconds REAL NOT NULL,
-    duration_seconds REAL NOT NULL,
-    status           TEXT NOT NULL,      -- running | complete | stopped
-    created_at       TEXT NOT NULL,
-    started_at       TEXT NOT NULL,
-    ended_at         TEXT
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    name              TEXT NOT NULL,
+    notes             TEXT,
+    settings_json     TEXT NOT NULL,     -- first acquisition's settings
+    acquisitions_json TEXT,              -- [{"name": ..., "settings": {...}}, ...]
+    interval_seconds  REAL NOT NULL,
+    duration_seconds  REAL NOT NULL,
+    status            TEXT NOT NULL,     -- running | complete | stopped
+    created_at        TEXT NOT NULL,
+    started_at        TEXT NOT NULL,
+    ended_at          TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_images_experiment ON images(experiment_id);
 """
+
+# Columns added after the first deploy. ``CREATE TABLE IF NOT EXISTS`` leaves an
+# existing table alone, so ``init_db`` ALTERs in whichever of these are missing.
+_ADDED_COLUMNS = {
+    "images": {"acquisition": "TEXT", "timepoint": "INTEGER"},
+    "experiments": {"acquisitions_json": "TEXT"},
+}
 
 
 def connect() -> sqlite3.Connection:
@@ -60,6 +75,11 @@ def connect() -> sqlite3.Connection:
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(_SCHEMA)
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for column, decl in columns.items():
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def insert_image(
@@ -71,12 +91,15 @@ def insert_image(
     image_format: str,
     settings: dict[str, Any],
     experiment_id: int | None = None,
+    acquisition: str | None = None,
+    timepoint: int | None = None,
 ) -> int:
     with connect() as conn:
         cur = conn.execute(
             """INSERT INTO images
-               (filename, captured_at, width, height, image_format, settings_json, experiment_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (filename, captured_at, width, height, image_format, settings_json,
+                experiment_id, acquisition, timepoint)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 filename,
                 captured_at,
@@ -85,22 +108,30 @@ def insert_image(
                 image_format,
                 json.dumps(settings, default=str),
                 experiment_id,
+                acquisition,
+                timepoint,
             ),
         )
         return int(cur.lastrowid)
 
 
-def list_images(limit: int = 200, experiment_id: int | None = None) -> list[dict[str, Any]]:
+def list_images(
+    limit: int = 200, experiment_id: int | None = None, acquisition: str | None = None
+) -> list[dict[str, Any]]:
+    """Newest first. ``acquisition`` narrows a run's frames to one of its acquisitions."""
+    where: list[str] = []
+    params: list[Any] = []
+    if experiment_id is not None:
+        where.append("experiment_id = ?")
+        params.append(experiment_id)
+    if acquisition is not None:
+        where.append("acquisition = ?")
+        params.append(acquisition)
+    clause = f"WHERE {' AND '.join(where)} " if where else ""
     with connect() as conn:
-        if experiment_id is None:
-            rows = conn.execute(
-                "SELECT * FROM images ORDER BY id DESC LIMIT ?", (limit,)
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM images WHERE experiment_id = ? ORDER BY id DESC LIMIT ?",
-                (experiment_id, limit),
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM images {clause}ORDER BY id DESC LIMIT ?", (*params, limit)
+        ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
@@ -211,17 +242,21 @@ def insert_experiment(
     duration_seconds: float,
     started_at: str,
     created_at: str,
+    acquisitions: list[dict[str, Any]] | None = None,
 ) -> int:
+    """``acquisitions`` is the ordered ``[{"name", "settings"}]`` list captured at every
+    timepoint; when omitted the run has one acquisition that uses ``settings``."""
     with connect() as conn:
         cur = conn.execute(
             """INSERT INTO experiments
-               (name, notes, settings_json, interval_seconds, duration_seconds,
-                status, created_at, started_at, ended_at)
-               VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL)""",
+               (name, notes, settings_json, acquisitions_json, interval_seconds,
+                duration_seconds, status, created_at, started_at, ended_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, NULL)""",
             (
                 name,
                 notes,
                 json.dumps(settings, default=str),
+                json.dumps(acquisitions, default=str) if acquisitions is not None else None,
                 interval_seconds,
                 duration_seconds,
                 created_at,
@@ -280,7 +315,25 @@ def count_experiment_images(experiment_id: int) -> int:
     return int(row["n"])
 
 
+def count_experiment_images_by_acquisition(experiment_id: int) -> dict[str, int]:
+    """Frame counts per acquisition name. Frames from before acquisitions existed have
+    no name and count toward ``DEFAULT_ACQUISITION``, matching their run's synthesized
+    single acquisition."""
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT COALESCE(acquisition, ?) AS acq, COUNT(*) AS n
+               FROM images WHERE experiment_id = ? GROUP BY acq""",
+            (DEFAULT_ACQUISITION, experiment_id),
+        ).fetchall()
+    return {r["acq"]: int(r["n"]) for r in rows}
+
+
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     d["settings"] = json.loads(d.pop("settings_json"))
+    if "acquisitions_json" in d:  # experiments rows
+        raw = d.pop("acquisitions_json")
+        d["acquisitions"] = (
+            json.loads(raw) if raw else [{"name": DEFAULT_ACQUISITION, "settings": d["settings"]}]
+        )
     return d

@@ -50,6 +50,7 @@ def gallery() -> dict[str, Any]:
                 "created_at": exp["created_at"],
                 "started_at": exp["started_at"],
                 "ended_at": exp["ended_at"],
+                "acquisition_names": [a["name"] for a in exp["acquisitions"]],
                 "frames_captured": summary["count"],
                 "cover_image_id": summary["cover_id"],
             }
@@ -106,6 +107,8 @@ def download(payload: dict[str, Any]) -> FileResponse:
                     "id",
                     "experiment_id",
                     "experiment_name",
+                    "acquisition",
+                    "timepoint",
                     "captured_at",
                     "width",
                     "height",
@@ -117,6 +120,10 @@ def download(payload: dict[str, Any]) -> FileResponse:
                 exp_id = row["experiment_id"]
                 if exp_id is not None:
                     folder = f"{_sanitize(exp_names.get(exp_id, f'run_{exp_id}'))}_{exp_id}"
+                    # Multi-acquisition runs get a subfolder per acquisition, so e.g.
+                    # the growth and luminescence series open as separate stacks.
+                    if row["acquisition"]:
+                        folder += f"/{_sanitize(row['acquisition'])}"
                     zip_path = f"{folder}/{row['filename']}"
                     exp_name = exp_names.get(exp_id, "")
                 else:
@@ -131,6 +138,8 @@ def download(payload: dict[str, Any]) -> FileResponse:
                         row["id"],
                         exp_id if exp_id is not None else "",
                         exp_name,
+                        row["acquisition"] or "",
+                        row["timepoint"] if row["timepoint"] is not None else "",
                         row["captured_at"],
                         row["width"],
                         row["height"],

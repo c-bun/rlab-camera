@@ -120,6 +120,14 @@ async function loadGallery() {
         <a href="/api/images/${img.id}/file?download=true">Download</a>
         <button type="button" class="use-settings-btn">Use settings</button>
       </div>`;
+    // Timecourse frames say which acquisition/timepoint they are (textContent: the
+    // acquisition name is user-entered).
+    if (img.acquisition) {
+      const tag = document.createElement("div");
+      tag.className = "acq-tag";
+      tag.textContent = `${img.acquisition} · t${img.timepoint ?? "?"}`;
+      card.querySelector(".info").prepend(tag);
+    }
     // Recall this capture's stored settings into the control panel. Bind the settings
     // object here rather than embedding JSON in the template string.
     card.querySelector(".use-settings-btn").addEventListener("click", () => {
@@ -130,16 +138,136 @@ async function loadGallery() {
   }
 }
 
-// Interval/duration aren't part of #controls-form/#illumination-form (collectSettings()),
-// so pull them in separately for presets. Returns {} if the fields aren't on this page.
+// Interval/duration and the acquisition list aren't part of #controls-form/
+// #illumination-form (collectSettings()), so pull them in separately for presets.
+// Returns {} if the fields aren't on this page.
 function collectTimecourseFields() {
   const interval = $("exp-interval");
   const duration = $("exp-duration");
   if (!interval || !duration) return {};
-  return {
+  const fields = {
     interval_seconds: Number(interval.value) * 60,
     duration_seconds: Number(duration.value) * 3600,
   };
+  if (acquisitions.length) fields.acquisitions = acquisitions;
+  return fields;
+}
+
+// --- Acquisitions: the ordered list of settings snapshots a run captures at every
+// timepoint (e.g. an illuminated frame for growth, then a long dark exposure for
+// luminescence). Empty means "use the current settings as the only acquisition". ---
+let acquisitions = [];
+
+// Called by the preset Recall handler in controls.js.
+function setAcquisitions(list) {
+  acquisitions = list.map((a) => ({ name: a.name, settings: { ...a.settings } }));
+  renderAcquisitions();
+}
+
+function acqSummary(s) {
+  const parts = [];
+  if (s.ExposureTime != null) parts.push(`${fmtExposure(s.ExposureTime)} exposure`);
+  if (s.AnalogueGain != null) parts.push(`gain ${s.AnalogueGain}`);
+  if (s.illum_enable) {
+    parts.push(`light ${s.illum_color} @ ${s.illum_brightness ?? 100}%`);
+  } else parts.push("light off");
+  return parts.join(" · ");
+}
+
+function fmtExposure(us) {
+  const s = us / 1e6;
+  return s >= 1 ? `${+s.toFixed(2)} s` : `${+(us / 1000).toFixed(2)} ms`;
+}
+
+function renderAcquisitions() {
+  const list = $("acquisitions-list");
+  list.innerHTML = "";
+  acquisitions.forEach((acq, i) => {
+    const li = document.createElement("li");
+    li.className = "acq-item";
+    const head = document.createElement("div");
+    head.className = "acq-head";
+    const name = document.createElement("span");
+    name.className = "acq-name";
+    name.textContent = acq.name;
+    head.append(name);
+
+    const button = (label, title, onClick, disabled = false) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.title = title;
+      b.disabled = disabled;
+      b.addEventListener("click", onClick);
+      head.append(b);
+    };
+    button("Load", "Load these settings into the controls to tune them in live view", () => {
+      applySettings(acq.settings);
+      refreshIllumStatus();
+      $("status").textContent = `Loaded acquisition “${acq.name}” — tune, then Update`;
+    });
+    button("Update", "Replace with the current control settings", () => {
+      acq.settings = collectSettings();
+      renderAcquisitions();
+      $("status").textContent = `Updated acquisition “${acq.name}”`;
+    });
+    button("↑", "Move earlier", () => moveAcquisition(i, -1), i === 0);
+    button("↓", "Move later", () => moveAcquisition(i, 1), i === acquisitions.length - 1);
+    button("✕", "Remove", () => {
+      acquisitions.splice(i, 1);
+      renderAcquisitions();
+    });
+
+    const summary = document.createElement("div");
+    summary.className = "acq-summary";
+    if (acq.settings.illum_enable) {
+      const swatch = document.createElement("span");
+      swatch.className = "acq-swatch";
+      swatch.style.background = acq.settings.illum_color;
+      summary.append(swatch, " ");
+    }
+    summary.append(acqSummary(acq.settings));
+    li.append(head, summary);
+    list.appendChild(li);
+  });
+  $("acq-empty").hidden = acquisitions.length > 0;
+  updateEstimate();
+}
+
+function moveAcquisition(i, delta) {
+  const [acq] = acquisitions.splice(i, 1);
+  acquisitions.splice(i + delta, 0, acq);
+  renderAcquisitions();
+}
+
+function addAcquisition() {
+  const input = $("acq-name");
+  const name = input.value.trim();
+  const status = $("status");
+  if (!name) {
+    status.textContent = "Name the acquisition (e.g. brightfield, luminescence).";
+    input.focus();
+    return;
+  }
+  if (acquisitions.some((a) => a.name === name)) {
+    status.textContent = `An acquisition named “${name}” already exists — use Update to change it.`;
+    return;
+  }
+  acquisitions.push({ name, settings: collectSettings() });
+  input.value = "";
+  status.textContent = `Added acquisition “${name}”`;
+  renderAcquisitions();
+}
+
+// What the run will capture at each timepoint: the list, or the current settings alone.
+function runAcquisitions() {
+  return acquisitions.length ? acquisitions : [{ name: "default", settings: collectSettings() }];
+}
+
+// Mirrors scheduler.estimate_timepoint_seconds: each capture costs ~3 exposures (an
+// in-flight frame, the dropped settling frame, the kept frame) plus ~2 s overhead.
+function estimateTimepointSeconds(list) {
+  return list.reduce((t, a) => t + (3 * (a.settings.ExposureTime || 0)) / 1e6 + 2, 0);
 }
 
 async function savePreset() {
@@ -188,8 +316,19 @@ function updateEstimate() {
   const interval = Number($("exp-interval").value) * 60;
   const duration = Number($("exp-duration").value) * 3600;
   const n = expectedFrames(interval, duration);
+  const m = Math.max(1, acquisitions.length);
   $("frame-estimate").textContent =
-    n == null ? "Enter an interval ≤ duration." : `≈ ${n} frames over this run.`;
+    n == null
+      ? "Enter an interval ≤ duration."
+      : m > 1
+        ? `≈ ${n} timepoints × ${m} acquisitions = ${n * m} frames over this run.`
+        : `≈ ${n} frames over this run.`;
+
+  // The server rejects a run whose timepoint can't fit in one interval; say so up front.
+  const needed = estimateTimepointSeconds(runAcquisitions());
+  const warn = $("timing-warn");
+  warn.hidden = !(interval > 0 && needed > interval);
+  warn.textContent = `⚠ One timepoint needs ~${fmtDuration(needed)} (≈3× each exposure plus overhead), longer than the ${fmtDuration(interval)} interval.`;
 }
 
 // The primary button captures once, or starts a run when timecourse mode is on.
@@ -254,7 +393,7 @@ async function startRun() {
         notes: $("exp-notes").value.trim(),
         interval_seconds: Number($("exp-interval").value) * 60,
         duration_seconds: Number($("exp-duration").value) * 3600,
-        settings: collectSettings(),
+        acquisitions: runAcquisitions(),
       }),
     });
     if (!res.ok) throw new Error(await res.text());
@@ -295,6 +434,10 @@ function enterRun(exp) {
   $("run-name").textContent = exp.name;
   $("run-notes").textContent = exp.notes || "";
   $("run-notes").hidden = !exp.notes;
+  // On resume (page reload mid-run) restore the run's acquisition list so "New run"
+  // starts from the same setup. A single "default" acquisition means none were defined.
+  const named = exp.acquisitions.length > 1 || exp.acquisitions[0].name !== "default";
+  if (!acquisitions.length && named) setAcquisitions(exp.acquisitions);
   $("new-btn").hidden = true;
   $("stop-btn").hidden = false;
   $("stop-btn").disabled = false;
@@ -316,11 +459,27 @@ function renderRun(exp) {
     ? Math.min(100, (exp.frames_captured / exp.expected_total) * 100)
     : 0;
   $("progress-fill").style.width = pct + "%";
-  let line = `${exp.frames_captured} / ${exp.expected_total} frames · ${exp.status}`;
+  const multi = exp.acquisition_names.length > 1;
+  let line = multi
+    ? `${exp.timepoints_captured} / ${exp.expected_timepoints} timepoints · ${exp.status}`
+    : `${exp.frames_captured} / ${exp.expected_total} frames · ${exp.status}`;
   if (exp.status === "running") {
     line += ` · ${fmtDuration(exp.seconds_remaining)} remaining`;
   }
   $("run-progress").textContent = line;
+
+  // Per-acquisition frame counts, so a failing acquisition (e.g. a dark exposure
+  // that errors) is visible rather than hidden in the total.
+  const list = $("run-acquisitions");
+  list.innerHTML = "";
+  list.hidden = !multi;
+  if (multi) {
+    for (const name of exp.acquisition_names) {
+      const li = document.createElement("li");
+      li.textContent = `${name}: ${exp.frames_by_acquisition[name]} / ${exp.expected_timepoints}`;
+      list.appendChild(li);
+    }
+  }
 
   if (exp.status !== "running") {
     // Run ended (complete or stopped): stop polling, offer a new run.
@@ -380,6 +539,12 @@ async function init() {
   $("timecourse-toggle").addEventListener("change", syncTimecourseUI);
   $("exp-interval").addEventListener("input", updateEstimate);
   $("exp-duration").addEventListener("input", updateEstimate);
+  // With no acquisitions defined the timing check uses the live controls (exposure).
+  $("controls-form").addEventListener("input", updateEstimate);
+  $("add-acq-btn").addEventListener("click", addAcquisition);
+  $("acq-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addAcquisition();
+  });
   $("stop-btn").addEventListener("click", stopRun);
   $("new-btn").addEventListener("click", newRun);
 

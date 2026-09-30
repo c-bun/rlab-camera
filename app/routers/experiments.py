@@ -15,7 +15,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from .. import db
 from ..scheduler import (
-    expected_total,
+    estimate_timepoint_seconds,
+    expected_timepoints,
     schedule_experiment,
     unschedule_experiment,
 )
@@ -25,8 +26,10 @@ router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 
 def _with_progress(exp: dict[str, Any]) -> dict[str, Any]:
     """Augment an experiment row with derived progress fields for the UI."""
-    total = expected_total(exp["interval_seconds"], exp["duration_seconds"])
-    captured = db.count_experiment_images(exp["id"])
+    names = [a["name"] for a in exp["acquisitions"]]
+    timepoints = expected_timepoints(exp["interval_seconds"], exp["duration_seconds"])
+    by_acq = db.count_experiment_images_by_acquisition(exp["id"])
+    captured = sum(by_acq.values())
     remaining = 0.0
     if exp["status"] == "running":
         started = datetime.fromisoformat(exp["started_at"])
@@ -34,10 +37,47 @@ def _with_progress(exp: dict[str, Any]) -> dict[str, Any]:
         remaining = max(0.0, end - datetime.now(UTC).timestamp())
     return {
         **exp,
+        "acquisition_names": names,
         "frames_captured": captured,
-        "expected_total": total,
+        "frames_by_acquisition": {n: by_acq.get(n, 0) for n in names},
+        # A timepoint counts once its slowest acquisition has a frame for it.
+        "timepoints_captured": min((by_acq.get(n, 0) for n in names), default=0),
+        "expected_timepoints": timepoints,
+        "expected_total": timepoints * len(names),
         "seconds_remaining": remaining,
     }
+
+
+def _parse_acquisitions(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate the run's acquisition list, or build a single one from the legacy
+    top-level ``settings`` when no list is given."""
+    raw = payload.get("acquisitions")
+    if raw is None:
+        settings = payload.get("settings")
+        if not isinstance(settings, dict):
+            raise HTTPException(status_code=400, detail="settings must be an object")
+        return [{"name": db.DEFAULT_ACQUISITION, "settings": settings}]
+
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(status_code=400, detail="acquisitions must be a non-empty list")
+    acquisitions: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="each acquisition must be an object")
+        name = str(item.get("name", "")).strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="every acquisition needs a name")
+        if name in seen:
+            raise HTTPException(status_code=400, detail=f"duplicate acquisition name {name!r}")
+        seen.add(name)
+        settings = item.get("settings")
+        if not isinstance(settings, dict):
+            raise HTTPException(
+                status_code=400, detail=f"acquisition {name!r}: settings must be an object"
+            )
+        acquisitions.append({"name": name, "settings": settings})
+    return acquisitions
 
 
 @router.get("")
@@ -54,9 +94,7 @@ def create_experiment(request: Request, payload: dict[str, Any]) -> dict[str, An
     notes = payload.get("notes")
     notes = str(notes).strip() if notes not in (None, "") else None
 
-    settings = payload.get("settings")
-    if not isinstance(settings, dict):
-        raise HTTPException(status_code=400, detail="settings must be an object")
+    acquisitions = _parse_acquisitions(payload)
 
     try:
         interval = float(payload.get("interval_seconds"))
@@ -69,6 +107,18 @@ def create_experiment(request: Request, payload: dict[str, Any]) -> dict[str, An
         raise HTTPException(status_code=400, detail="interval_seconds must be > 0")
     if duration < interval:
         raise HTTPException(status_code=400, detail="duration_seconds must be >= interval_seconds")
+    # Every acquisition must fit inside one interval, or timepoints would be silently
+    # dropped (the capture job never overlaps itself).
+    needed = estimate_timepoint_seconds(acquisitions)
+    if needed > interval:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"one timepoint needs ~{needed:.0f} s to capture all acquisitions "
+                f"(~3× each exposure plus overhead), longer than the {interval:.0f} s "
+                "interval; lengthen the interval or shorten the exposures"
+            ),
+        )
 
     if db.get_active_experiment() is not None:
         raise HTTPException(
@@ -79,7 +129,8 @@ def create_experiment(request: Request, payload: dict[str, Any]) -> dict[str, An
     exp_id = db.insert_experiment(
         name=name,
         notes=notes,
-        settings=settings,
+        settings=acquisitions[0]["settings"],
+        acquisitions=acquisitions,
         interval_seconds=interval,
         duration_seconds=duration,
         started_at=now,
@@ -99,10 +150,12 @@ def get_experiment(experiment_id: int) -> dict[str, Any]:
 
 
 @router.get("/{experiment_id}/images")
-def experiment_images(experiment_id: int, limit: int = 500) -> list[dict[str, Any]]:
+def experiment_images(
+    experiment_id: int, limit: int = 500, acquisition: str | None = None
+) -> list[dict[str, Any]]:
     if db.get_experiment(experiment_id) is None:
         raise HTTPException(status_code=404, detail="experiment not found")
-    return db.list_images(limit=limit, experiment_id=experiment_id)
+    return db.list_images(limit=limit, experiment_id=experiment_id, acquisition=acquisition)
 
 
 @router.post("/{experiment_id}/stop")

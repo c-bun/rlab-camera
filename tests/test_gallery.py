@@ -129,3 +129,41 @@ def test_delete_stopped_experiment_removes_frames_and_files(client):
     assert db.get_experiment(exp_id) is None
     assert all(db.get_image(fid) is None for fid in frames)
     assert all(not p.exists() for p in frame_paths)
+
+
+def test_download_zip_splits_acquisitions_into_subfolders(client):
+    import csv
+
+    from app import db
+    from app.capture_service import perform_capture
+
+    now = datetime.now(UTC).isoformat()
+    acqs = [
+        {"name": "brightfield", "settings": {"illum_enable": True}},
+        {"name": "luminescence", "settings": {"illum_enable": False}},
+    ]
+    exp_id = db.insert_experiment(
+        name="lux",
+        notes=None,
+        settings={},
+        acquisitions=acqs,
+        interval_seconds=600,
+        duration_seconds=3600,
+        started_at=now,
+        created_at=now,
+    )
+    for acq in acqs:
+        perform_capture(acq["settings"], experiment_id=exp_id, acquisition=acq["name"], timepoint=0)
+
+    stack = client.get("/api/gallery").json()["experiments"][0]
+    assert stack["acquisition_names"] == ["brightfield", "luminescence"]
+
+    resp = client.post("/api/gallery/download", json={"experiment_ids": [exp_id]})
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = zf.namelist()
+    assert any(n.startswith(f"lux_{exp_id}/brightfield/") for n in names)
+    assert any(n.startswith(f"lux_{exp_id}/luminescence/") for n in names)
+
+    rows = list(csv.DictReader(io.StringIO(zf.read("manifest.csv").decode())))
+    assert sorted(r["acquisition"] for r in rows) == ["brightfield", "luminescence"]
+    assert {r["timepoint"] for r in rows} == {"0"}

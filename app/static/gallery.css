@@ -79,15 +79,25 @@ main { grid-template-columns: 1fr; }
 /* Inline expansion of a run's frames, spanning the full grid width. */
 .frames-expander {
   grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 0.75rem;
   padding: 0.75rem;
   margin: 0 0 0.5rem;
   border: 1px dashed #8884;
   border-radius: 6px;
   background: #8881;
 }
+.frames-expander .frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
 .frames-expander .empty { opacity: 0.6; font-style: italic; }
+
+/* Multi-acquisition runs: which acquisitions a stack holds, a per-acquisition filter
+   for its expanded frames, and each frame's acquisition + timepoint label. */
+.card .acq-list { font-size: 0.7rem; opacity: 0.75; }
+.acq-filter { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.75rem; }
+.acq-filter button { padding: 0.2rem 0.6rem; font-size: 0.75rem; font-weight: 500; }
+.acq-filter button.active { font-weight: 700; outline: 2px solid #4a90d9; }
+.card .acq-tag { font-weight: 600; }
 
 .gallery-empty { opacity: 0.6; font-style: italic; }
