@@ -12,9 +12,17 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .base import CameraBackend, CameraControl, CaptureResult
-from .controls import MANUAL_CONTROLS, controls_by_name
-from .tiff import write_imagej_tiff
+from .controls import FIXED_WHITE_BALANCE, MANUAL_CONTROLS
+from .raw import (
+    bayer_to_channels,
+    bit_depth_from_format,
+    cfa_from_format,
+    unpack_csi2p,
+)
+from .tiff import write_imagej_channel_stack
 
 # Small fixed size for the live view, independent of the `resolution` control, so
 # preview stays cheap even when captures are configured for full sensor resolution.
@@ -29,11 +37,8 @@ _PREVIEW_SIZE = (1014, 760)
 _PICAMERA2_DIRECT = {
     "ExposureTime",
     "AnalogueGain",
-    "AwbEnable",
     "ExposureValue",
 }
-
-_AWB_OFF_VALUES = (False, "false", "False", "off", "0", 0)
 
 
 class Picamera2Camera(CameraBackend):
@@ -85,8 +90,8 @@ class Picamera2Camera(CameraBackend):
             if controls:
                 self._picam2.set_controls(controls)
 
-            # Drop a frame so the new controls (exposure/gain/AWB) take effect before
-            # the frame we keep — otherwise the first capture reflects the old state.
+            # Drop a frame so the new controls (exposure/gain) take effect before the
+            # frame we keep — otherwise the first capture reflects the old state.
             self._picam2.capture_request().release()
 
             image_format = "tiff"
@@ -94,25 +99,39 @@ class Picamera2Camera(CameraBackend):
             try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
-                # Report the size the camera was ACTUALLY configured to, not the request.
-                actual_w, actual_h = self._picam2.camera_configuration()["main"]["size"]
+                raw_cfg = self._picam2.camera_configuration()["raw"]
                 metadata = request.get_metadata()
+
+                # Raw Bayer mosaic straight off the sensor, split into an R/G/B channel
+                # stack with no demosaic interpolation (each 2x2 block -> one output pixel).
+                mosaic, cfa, bit_depth = self._read_raw_mosaic(request, raw_cfg)
+                stack = bayer_to_channels(mosaic, cfa)
+                out_h, out_w = stack.shape[1], stack.shape[2]
+
+                black, white = _raw_levels(metadata, bit_depth)
+                read_w, read_h = raw_cfg["size"]
                 applied = {
                     **settings,
-                    "resolution": f"{actual_w}x{actual_h}",
+                    **FIXED_WHITE_BALANCE,
+                    "resolution": f"{read_w}x{read_h}",
                     "image_format": image_format,
+                    "raw_cfa": cfa,
+                    "raw_bit_depth": bit_depth,
+                    "raw_black_level": black,
+                    "raw_white_level": white,
+                    "channels": "R,G,B (G = mean of both Bayer greens)",
                     "_sensor_metadata": metadata,
                 }
 
-                # Lossless TIFF carrying the applied settings + sensor metadata as an
-                # ImageJ-readable Info property (request.save can't embed our metadata).
-                write_imagej_tiff(dest, request.make_array("main"), applied)
+                # 16-bit ImageJ composite stack of raw values; settings + sensor metadata
+                # ride along in the Info property (request.save can't embed our metadata).
+                write_imagej_channel_stack(dest, stack, applied)
             finally:
                 request.release()
             return CaptureResult(
                 path=dest,
-                width=actual_w,
-                height=actual_h,
+                width=out_w,
+                height=out_h,
                 image_format=image_format,
                 applied_settings=applied,
             )
@@ -134,31 +153,61 @@ class Picamera2Camera(CameraBackend):
             return buf.getvalue()
 
     def _ensure_configured(self, size: tuple[int, int]) -> None:
-        """(Re)configure a still stream at `size`, restarting only when it changes."""
+        """(Re)configure at `size`, restarting only when it changes.
+
+        Both a `main` stream (for the processed live-view preview) and a `raw` stream at
+        the sensor readout mode are configured; captures read the raw stream, preview reads
+        main. `size` selects the sensor mode, so the raw plane comes off at that resolution.
+        """
         if self._configured_size == size and self._started:
             return
         if self._started:
             self._picam2.stop()
             self._started = False
-        config = self._picam2.create_still_configuration(main={"size": size})
+        config = self._picam2.create_still_configuration(main={"size": size}, raw={"size": size})
         self._picam2.configure(config)
         self._picam2.start()
         self._started = True
         self._configured_size = size
 
+    def _read_raw_mosaic(
+        self, request: Any, raw_cfg: dict[str, Any]
+    ) -> tuple[np.ndarray, str, int]:
+        """Return (mosaic, cfa, bit_depth) — a 2-D uint16 Bayer mosaic off the raw stream.
+
+        picamera2 reports the raw stream as a packed CSI2P plane on the IMX477; we reshape
+        the raw buffer by its stride and unpack. If a sensor ever reports an already-unpacked
+        format, `make_array` yields the uint16 mosaic directly.
+        """
+        fmt = raw_cfg["format"]
+        cfa = cfa_from_format(fmt)
+        bit_depth = bit_depth_from_format(fmt)
+        width, height = raw_cfg["size"]
+
+        if "CSI2P" in fmt.upper():
+            stride = raw_cfg["stride"]
+            buf = request.make_buffer("raw")
+            plane = np.frombuffer(buf, dtype=np.uint8)[: height * stride].reshape(height, stride)
+            mosaic = unpack_csi2p(plane, width, bit_depth)
+        else:
+            mosaic = np.asarray(request.make_array("raw"))
+            if mosaic.ndim != 2:  # some formats come back with a trailing axis
+                mosaic = mosaic.reshape(height, -1)
+            mosaic = mosaic[:height, :width].astype(np.uint16)
+        return mosaic, cfa, bit_depth
+
     def _build_controls(self, settings: dict[str, Any]) -> dict[str, Any]:
-        defs = controls_by_name()
         controls: dict[str, Any] = {}
         for name in _PICAMERA2_DIRECT:
             if settings.get(name) is not None:
                 controls[name] = settings[name]
 
-        # Manual colour gains as a (red, blue) tuple, only when AWB is disabled.
-        if settings.get("AwbEnable") in _AWB_OFF_VALUES:
-            controls["AwbEnable"] = False
-            red = settings.get("ColourGainRed", defs["ColourGainRed"].default)
-            blue = settings.get("ColourGainBlue", defs["ColourGainBlue"].default)
-            controls["ColourGains"] = (float(red), float(blue))
+        # AWB is fixed off with unity colour gains — see FIXED_WHITE_BALANCE.
+        controls["AwbEnable"] = False
+        controls["ColourGains"] = (
+            FIXED_WHITE_BALANCE["ColourGainRed"],
+            FIXED_WHITE_BALANCE["ColourGainBlue"],
+        )
         return controls
 
     def close(self) -> None:
@@ -169,6 +218,20 @@ class Picamera2Camera(CameraBackend):
                 self._started = False
             picam.close()
             self._picam2 = None
+
+
+def _raw_levels(metadata: dict[str, Any], bit_depth: int) -> tuple[Any, int]:
+    """Black and white reference levels for the raw values, for later interpretation.
+
+    White is the sensor's full-scale value (2**bit_depth - 1). Black comes from libcamera's
+    per-channel `SensorBlackLevels` when reported (left-justified to 16 bits, as libcamera
+    gives it), else 0.
+    """
+    white = (1 << bit_depth) - 1
+    black = metadata.get("SensorBlackLevels", 0)
+    if isinstance(black, (list, tuple)):
+        black = list(black)
+    return black, white
 
 
 def _parse_resolution(value: str) -> tuple[int, int]:

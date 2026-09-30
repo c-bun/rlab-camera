@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+import tifffile
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from PIL import Image
@@ -66,8 +68,37 @@ def image_thumbnail(image_id: int) -> FileResponse:
     thumb = config.THUMBS_DIR / f"{image_id}.jpg"
     if not thumb.exists() or thumb.stat().st_mtime < src.stat().st_mtime:
         config.ensure_dirs()
-        with Image.open(src) as im:
-            im = im.convert("RGB")
-            im.thumbnail((_THUMB_MAX, _THUMB_MAX))
-            im.save(thumb, format="JPEG", quality=80)
+        im = _preview_rgb(src)
+        im.thumbnail((_THUMB_MAX, _THUMB_MAX))
+        im.save(thumb, format="JPEG", quality=80)
     return FileResponse(thumb, media_type="image/jpeg")
+
+
+def _preview_rgb(src) -> Image.Image:
+    """An 8-bit RGB preview of a capture for the gallery.
+
+    Raw captures are 16-bit 3-channel composite TIFF stacks that PIL would open as a single
+    grayscale plane, so read them with tifffile and scale to 8-bit for display. (Display
+    scaling only — the scientific data lives in the original file.) Other/legacy formats
+    fall back to PIL.
+    """
+    try:
+        arr = np.asarray(tifffile.imread(str(src)))
+    except Exception:
+        with Image.open(src) as im:
+            return im.convert("RGB")
+
+    if arr.ndim == 3 and arr.shape[0] in (3, 4):  # (C, Y, X) channel stack -> (Y, X, C)
+        arr = np.moveaxis(arr, 0, -1)[..., :3]
+    elif arr.ndim == 2:  # single plane
+        arr = np.stack([arr] * 3, axis=-1)
+    elif arr.ndim == 3 and arr.shape[-1] >= 3:  # already (Y, X, C)
+        arr = arr[..., :3]
+    else:
+        with Image.open(src) as im:
+            return im.convert("RGB")
+
+    if arr.dtype != np.uint8:
+        peak = float(arr.max()) or 1.0
+        arr = (arr.astype(np.float32) / peak * 255.0).clip(0, 255).astype(np.uint8)
+    return Image.fromarray(arr, mode="RGB")

@@ -11,16 +11,27 @@ from .base import CameraControl
 
 # Resolutions the HQ camera commonly runs at (full sensor is 4056x3040).
 RESOLUTIONS = ["4056x3040", "2028x1520", "2028x1080", "1332x990"]
-AWB_MODES = ["auto", "incandescent", "tungsten", "fluorescent", "indoor", "daylight", "cloudy"]
+
+# Captures now record the raw Bayer sensor data (see app/camera/raw.py), which bypasses
+# the ISP's white balance entirely — so these values no longer affect captured pixels. They
+# are kept because the processed live-view preview still runs through the ISP; pinning AWB
+# off with unity gains keeps that preview stable rather than auto-white-balancing.
+FIXED_WHITE_BALANCE: dict[str, object] = {
+    "AwbEnable": False,
+    "ColourGainRed": 1.0,
+    "ColourGainBlue": 1.0,
+}
 
 MANUAL_CONTROLS: list[CameraControl] = [
     CameraControl(
         "resolution",
-        "Resolution",
+        "Sensor readout mode",
         "choice",
         default="4056x3040",
         choices=RESOLUTIONS,
-        description="Capture resolution (width x height).",
+        description="Sensor readout resolution. Raw captures are saved as a 3-channel R/G/B "
+        "stack built from 2x2 Bayer blocks, so the saved TIFF is half these dimensions "
+        "(e.g. 4056x3040 readout -> 2028x1520 stack).",
     ),
     CameraControl(
         "ExposureTime",
@@ -44,41 +55,6 @@ MANUAL_CONTROLS: list[CameraControl] = [
         default=1.0,
         step=0.1,
         description="Sensor gain; ISO ≈ gain × 100.",
-    ),
-    CameraControl(
-        "AwbEnable",
-        "Auto white balance",
-        "bool",
-        default=True,
-        description="When off, use the manual red/blue colour gains below.",
-    ),
-    CameraControl(
-        "AwbMode",
-        "AWB mode",
-        "choice",
-        default="auto",
-        choices=AWB_MODES,
-        description="White-balance preset used when AWB is enabled.",
-    ),
-    CameraControl(
-        "ColourGainRed",
-        "Red colour gain",
-        "number",
-        min=0.0,
-        max=32.0,
-        default=2.0,
-        step=0.1,
-        description="Manual red gain (used when AWB is off).",
-    ),
-    CameraControl(
-        "ColourGainBlue",
-        "Blue colour gain",
-        "number",
-        min=0.0,
-        max=32.0,
-        default=2.0,
-        step=0.1,
-        description="Manual blue gain (used when AWB is off).",
     ),
     CameraControl(
         "ExposureValue",

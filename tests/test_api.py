@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 
+import numpy as np
 import tifffile
 
 
@@ -42,6 +43,9 @@ def test_capture_tiff_embeds_imagej_metadata(client):
     assert resp.status_code == 200
     img = resp.json()
     assert img["image_format"] == "tiff"
+    # Raw capture records provenance so the values stay interpretable.
+    assert img["settings"]["raw_cfa"] == "RGGB"
+    assert img["settings"]["channels"].startswith("R,G,B")
 
     file_resp = client.get(f"/api/images/{img['id']}/file?download=true")
     assert file_resp.status_code == 200
@@ -49,7 +53,11 @@ def test_capture_tiff_embeds_imagej_metadata(client):
 
     with tifffile.TiffFile(io.BytesIO(file_resp.content)) as tif:
         info = tif.imagej_metadata["Info"]
+        data = tif.asarray()
     assert "ExposureTime=5000" in info
+    # A 16-bit, 3-channel (R/G/B) composite stack.
+    assert data.dtype == np.uint16
+    assert data.shape[0] == 3  # channel axis
 
     # A JPEG thumbnail is served so the TIFF still previews in the browser gallery.
     thumb_resp = client.get(f"/api/images/{img['id']}/thumbnail")
