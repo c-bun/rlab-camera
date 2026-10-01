@@ -20,7 +20,22 @@ from .routers import capture, experiments, gallery, illumination, images, preset
 from .scheduler import make_scheduler, reconcile_on_startup
 
 BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def static_url(path: str) -> str:
+    """URL for a static file, versioned by its mtime so a deploy that changes it busts
+    the browser cache. Without this Chrome can pair freshly fetched HTML with a stale
+    cached script, leaving new buttons with no handlers."""
+    try:
+        version = int((STATIC_DIR / path).stat().st_mtime)
+    except OSError:
+        return f"/static/{path}"
+    return f"/static/{path}?v={version}"
+
+
+templates.env.globals["static_url"] = static_url
 
 
 @asynccontextmanager
@@ -42,7 +57,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="rlab-camera", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Share templates with routers without a circular import.
 app.state.templates = templates

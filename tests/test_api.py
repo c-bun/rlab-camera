@@ -121,3 +121,15 @@ def test_preset_save_list_recall_delete(client):
 def test_preset_blank_name_rejected(client):
     assert client.post("/api/presets", json={"name": "  ", "settings": {}}).status_code == 400
     assert client.post("/api/presets", json={"settings": {}}).status_code == 400
+
+
+def test_pages_version_static_assets(client):
+    # Versioned URLs stop the browser pairing new HTML with a stale cached script.
+    import re
+
+    for page, assets in (("/", ["app.css", "controls.js", "app.js"]), ("/gallery", ["gallery.js"])):
+        html = client.get(page).text
+        for asset in assets:
+            match = re.search(rf'/static/{re.escape(asset)}\?v=(\d+)"', html)
+            assert match, f"{asset} not versioned on {page}"
+            assert client.get(match.group(0).rstrip('"')).status_code == 200
