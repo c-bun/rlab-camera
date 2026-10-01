@@ -34,3 +34,24 @@ def test_mock_capture_clamps_and_records_settings(tmp_path):
     assert (result.width, result.height) == (666, 495)
     assert result.applied_settings["ExposureTime"] >= 100
     assert result.applied_settings["raw_cfa"] == "RGGB"
+
+
+def test_controls_applied_waits_for_requested_exposure_and_gain():
+    # Importable off-Pi: picamera2 itself is only imported when the backend is built.
+    from app.camera.picamera2_backend import _controls_applied
+
+    dark = {"ExposureTime": 5_000_000, "AnalogueGain": 8.0}
+    flash = {"ExposureTime": 20_000, "AnalogueGain": 1.0}
+    # Metadata as read back on the Pi: exposure quantized to whole line times.
+    flash_frame = {"ExposureTime": 19979, "AnalogueGain": 1.0}
+    dark_frame = {"ExposureTime": 4999914, "AnalogueGain": 8.0}
+
+    assert _controls_applied(flash_frame, flash)
+    assert _controls_applied(dark_frame, dark)
+    # A stale frame still at the previous acquisition's settings is not accepted.
+    assert not _controls_applied(flash_frame, dark)
+    assert not _controls_applied(dark_frame, flash)
+    # Same exposure, wrong gain.
+    assert not _controls_applied({"ExposureTime": 19979, "AnalogueGain": 8.0}, flash)
+    # Nothing requested -> nothing to wait for.
+    assert _controls_applied({}, {"AwbEnable": False})

@@ -8,6 +8,7 @@ Install on the Pi with: sudo apt install -y python3-picamera2
 from __future__ import annotations
 
 import io
+import logging
 import threading
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ from .raw import (
 )
 from .tiff import write_imagej_channel_stack
 
+log = logging.getLogger(__name__)
+
 # Small fixed size for the live view, independent of the `resolution` control, so
 # preview stays cheap even when captures are configured for full sensor resolution.
 _PREVIEW_SIZE = (1014, 760)
@@ -39,6 +42,29 @@ _PICAMERA2_DIRECT = {
     "AnalogueGain",
     "ExposureValue",
 }
+
+# Most frames capture() will discard waiting for new controls to reach the sensor.
+# Typically 2–4 are needed after a large exposure/gain change; 10 is generous.
+_MAX_SETTLE_FRAMES = 10
+
+
+def _controls_applied(metadata: dict[str, Any], controls: dict[str, Any]) -> bool:
+    """Whether a frame's metadata shows the requested exposure and gain in effect.
+
+    The sensor quantizes exposure to whole line times (20000 µs reads back as 19979),
+    so compare within 2% (or 100 µs for very short exposures); gain within 2%.
+    """
+    want_exp = controls.get("ExposureTime")
+    if want_exp is not None:
+        got = metadata.get("ExposureTime")
+        if got is None or abs(got - want_exp) > max(0.02 * want_exp, 100):
+            return False
+    want_gain = controls.get("AnalogueGain")
+    if want_gain is not None:
+        got = metadata.get("AnalogueGain")
+        if got is None or abs(got - want_gain) > 0.02 * want_gain:
+            return False
+    return True
 
 
 class Picamera2Camera(CameraBackend):
@@ -90,12 +116,22 @@ class Picamera2Camera(CameraBackend):
             if controls:
                 self._picam2.set_controls(controls)
 
-            # Drop a frame so the new controls (exposure/gain) take effect before the
-            # frame we keep — otherwise the first capture reflects the old state.
-            self._picam2.capture_request().release()
-
+            # Discard frames until the sensor reports the requested exposure/gain. New
+            # controls take several frames to reach the sensor (frames already queued or
+            # integrating keep the old values), so a fixed one-frame drop isn't enough
+            # after a big change — e.g. a multi-acquisition run alternating a 20 ms
+            # illuminated frame with a 5 s dark one kept each frame at the *previous*
+            # acquisition's settings. Capped so a control the sensor can't honour can't
+            # hang the capture; the frame's real values land in _sensor_metadata anyway.
             image_format = "tiff"
             request = self._picam2.capture_request()
+            for _ in range(_MAX_SETTLE_FRAMES):
+                if _controls_applied(request.get_metadata(), controls):
+                    break
+                request.release()
+                request = self._picam2.capture_request()
+            else:
+                log.warning("capture: controls %s not reached; keeping last frame", controls)
             try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
