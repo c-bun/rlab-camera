@@ -217,6 +217,17 @@ def test_timepoint_that_cannot_fit_in_interval_rejected(client, unscheduled):
     assert "interval" in resp.json()["detail"]
 
 
+def test_timepoint_estimate_covers_switch_from_long_exposure():
+    from app.scheduler import estimate_timepoint_seconds
+
+    # Measured on the Pi: a 20 ms frame after a 5 s one took ~25 s to arrive, and the
+    # whole flash + dark timepoint ~30 s. The estimate must not undershoot that.
+    needed = estimate_timepoint_seconds(_MULTI_RUN["acquisitions"])
+    assert 30 <= needed <= 45
+    # A single acquisition never switches controls, so it pays no drain.
+    assert estimate_timepoint_seconds([{"name": "a", "settings": _DARK}]) == 12
+
+
 def test_capture_job_takes_every_acquisition(client):
     from app import db, scheduler
 

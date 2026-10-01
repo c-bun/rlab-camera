@@ -264,10 +264,15 @@ function runAcquisitions() {
   return acquisitions.length ? acquisitions : [{ name: "default", settings: collectSettings() }];
 }
 
-// Mirrors scheduler.estimate_timepoint_seconds: each capture costs ~3 exposures (an
-// in-flight frame, the dropped settling frame, the kept frame) plus ~2 s overhead.
+// Mirrors scheduler.estimate_timepoint_seconds: each capture costs ~2 of its own
+// exposures plus ~2 s overhead, and switching from the previous acquisition drains
+// ~5 frames still in flight at that acquisition's exposure.
 function estimateTimepointSeconds(list) {
-  return list.reduce((t, a) => t + (3 * (a.settings.ExposureTime || 0)) / 1e6 + 2, 0);
+  const exps = list.map((a) => (a.settings.ExposureTime || 0) / 1e6);
+  return exps.reduce(
+    (t, e, i) => t + 2 * e + 2 + (exps.length > 1 ? 5 * exps.at(i - 1) : 0),
+    0,
+  );
 }
 
 async function savePreset() {
@@ -328,7 +333,7 @@ function updateEstimate() {
   const needed = estimateTimepointSeconds(runAcquisitions());
   const warn = $("timing-warn");
   warn.hidden = !(interval > 0 && needed > interval);
-  warn.textContent = `⚠ One timepoint needs ~${fmtDuration(needed)} (≈3× each exposure plus overhead), longer than the ${fmtDuration(interval)} interval.`;
+  warn.textContent = `⚠ One timepoint needs ~${fmtDuration(needed)} (switching away from a long exposure waits out ~5 of its frames), longer than the ${fmtDuration(interval)} interval.`;
 }
 
 // The primary button captures once, or starts a run when timecourse mode is on.

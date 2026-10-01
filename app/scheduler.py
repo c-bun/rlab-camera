@@ -54,17 +54,26 @@ def expected_total(
 _ACQUISITION_OVERHEAD_SECONDS = 2.0
 
 
+# Frames still in flight at the previous acquisition's exposure when the controls
+# change, each of which must be waited out (measured ~5 on the Pi's HQ camera: a
+# 5 s → 20 ms switch took ~25 s before the first 20 ms frame arrived).
+_STALE_FRAMES_ON_SWITCH = 5
+
+
 def estimate_timepoint_seconds(acquisitions: list[dict[str, Any]]) -> float:
     """Conservative wall-clock estimate for capturing every acquisition once.
 
-    Each capture costs ~3 exposures, not 1: a frame already in flight at the old
-    settings, the settling frame dropped after ``set_controls``, then the kept frame.
-    Acquisitions alternate controls every timepoint, so every capture pays this.
+    Each capture waits for a frame that starts exposing after its controls are set
+    (up to one in-flight frame plus its own: ~2 exposures). When acquisitions differ,
+    switching also drains the frames still in flight at the *previous* acquisition's
+    exposure — the dominant cost when a short exposure follows a long dark one.
     """
+    exposures = [float(a["settings"].get("ExposureTime") or 0) / 1e6 for a in acquisitions]
     total = 0.0
-    for acq in acquisitions:
-        exposure_us = acq["settings"].get("ExposureTime") or 0
-        total += 3 * float(exposure_us) / 1e6 + _ACQUISITION_OVERHEAD_SECONDS
+    for i, exposure in enumerate(exposures):
+        total += 2 * exposure + _ACQUISITION_OVERHEAD_SECONDS
+        if len(exposures) > 1:  # the previous one in the cycle (last → first)
+            total += _STALE_FRAMES_ON_SWITCH * exposures[i - 1]
     return total
 
 

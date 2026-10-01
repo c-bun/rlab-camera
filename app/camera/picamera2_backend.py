@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -115,21 +116,27 @@ class Picamera2Camera(CameraBackend):
             controls = self._build_controls(settings)
             if controls:
                 self._picam2.set_controls(controls)
+            # The caller has already set the illumination (perform_capture lights or
+            # darkens the panels before calling us), so from here on the scene is final.
+            not_before_ns = time.monotonic_ns()
 
-            # Discard frames until the sensor reports the requested exposure/gain. New
-            # controls take several frames to reach the sensor (frames already queued or
-            # integrating keep the old values), so a fixed one-frame drop isn't enough
-            # after a big change — e.g. a multi-acquisition run alternating a 20 ms
-            # illuminated frame with a 5 s dark one kept each frame at the *previous*
-            # acquisition's settings. Capped so a control the sensor can't honour can't
-            # hang the capture; the frame's real values land in _sensor_metadata anyway.
+            # Keep only a frame that both (a) started exposing after this point — so it
+            # can't have integrated light from the panels' previous state, which matters
+            # when consecutive captures share exposure/gain and differ only in
+            # illumination — and (b) reports the requested exposure/gain. `flush` makes
+            # picamera2 drop frames whose exposure began (SensorTimestamp − ExposureTime)
+            # before the timestamp. (b) is still needed: new controls take several frames
+            # to reach the sensor, and on hardware a run alternating a 20 ms lit frame
+            # with a 5 s dark one kept each frame at the *previous* acquisition's
+            # exposure/gain. Capped so a control the sensor can't honour can't hang the
+            # capture; the frame's real values land in _sensor_metadata anyway.
             image_format = "tiff"
-            request = self._picam2.capture_request()
+            request = self._picam2.capture_request(flush=not_before_ns)
             for _ in range(_MAX_SETTLE_FRAMES):
                 if _controls_applied(request.get_metadata(), controls):
                     break
                 request.release()
-                request = self._picam2.capture_request()
+                request = self._picam2.capture_request(flush=not_before_ns)
             else:
                 log.warning("capture: controls %s not reached; keeping last frame", controls)
             try:

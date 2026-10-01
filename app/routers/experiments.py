@@ -115,7 +115,8 @@ def create_experiment(request: Request, payload: dict[str, Any]) -> dict[str, An
             status_code=400,
             detail=(
                 f"one timepoint needs ~{needed:.0f} s to capture all acquisitions "
-                f"(~3× each exposure plus overhead), longer than the {interval:.0f} s "
+                "(switching from a long exposure waits out ~5 of its frames), "
+                f"longer than the {interval:.0f} s "
                 "interval; lengthen the interval or shorten the exposures"
             ),
         )
