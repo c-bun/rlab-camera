@@ -93,6 +93,9 @@ button {
 /* Acquisitions captured at every timepoint (timecourse setup). */
 #acquisitions-panel { margin-bottom: 0.5rem; }
 #acquisitions-panel h3 { font-size: 0.85rem; margin: 0 0 0.4rem; }
+#acq-msg { margin: 0 0 0.4rem; }
+#acq-msg.error { color: #b3261e; opacity: 1; font-weight: 600; }
+#acq-name[aria-invalid="true"] { outline: 2px solid #b3261e; }
 #acquisitions-list { margin: 0; padding-left: 1.4rem; display: grid; gap: 0.4rem; }
 #acquisitions-list:empty { display: none; }
 .acq-item { display: grid; gap: 0.15rem; }

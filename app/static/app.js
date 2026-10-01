@@ -204,12 +204,12 @@ function renderAcquisitions() {
     button("Load", "Load these settings into the controls to tune them in live view", () => {
       applySettings(acq.settings);
       refreshIllumStatus();
-      $("status").textContent = `Loaded acquisition “${acq.name}” — tune, then Update`;
+      acqMessage(`Loaded “${acq.name}” into the controls — tune, then Update.`);
     });
     button("Update", "Replace with the current control settings", () => {
       acq.settings = collectSettings();
       renderAcquisitions();
-      $("status").textContent = `Updated acquisition “${acq.name}”`;
+      acqMessage(`Updated “${acq.name}” from the current controls.`);
     });
     button("↑", "Move earlier", () => moveAcquisition(i, -1), i === 0);
     button("↓", "Move later", () => moveAcquisition(i, 1), i === acquisitions.length - 1);
@@ -240,22 +240,34 @@ function moveAcquisition(i, delta) {
   renderAcquisitions();
 }
 
+// Feedback for the acquisition controls, shown right under them — the page-wide
+// #status line sits far below the fold, so a message there reads as "nothing happened".
+function acqMessage(text, { error = false } = {}) {
+  const msg = $("acq-msg");
+  msg.textContent = text;
+  msg.classList.toggle("error", error);
+  msg.hidden = !text;
+  $("acq-name").setAttribute("aria-invalid", error ? "true" : "false");
+}
+
 function addAcquisition() {
   const input = $("acq-name");
   const name = input.value.trim();
-  const status = $("status");
   if (!name) {
-    status.textContent = "Name the acquisition (e.g. brightfield, luminescence).";
+    acqMessage("Enter a name first (e.g. brightfield, luminescence).", { error: true });
     input.focus();
     return;
   }
   if (acquisitions.some((a) => a.name === name)) {
-    status.textContent = `An acquisition named “${name}” already exists — use Update to change it.`;
+    acqMessage(`“${name}” already exists — use its Update button to change it.`, {
+      error: true,
+    });
+    input.focus();
     return;
   }
   acquisitions.push({ name, settings: collectSettings() });
   input.value = "";
-  status.textContent = `Added acquisition “${name}”`;
+  acqMessage(`Added “${name}”.`);
   renderAcquisitions();
 }
 
@@ -549,6 +561,9 @@ async function init() {
   $("add-acq-btn").addEventListener("click", addAcquisition);
   $("acq-name").addEventListener("keydown", (e) => {
     if (e.key === "Enter") addAcquisition();
+  });
+  $("acq-name").addEventListener("input", () => {
+    if ($("acq-msg").classList.contains("error")) acqMessage("");
   });
   $("stop-btn").addEventListener("click", stopRun);
   $("new-btn").addEventListener("click", newRun);
